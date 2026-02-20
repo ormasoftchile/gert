@@ -1,0 +1,18 @@
+# DRI selects "reachable_proxy" → branches to check_proxy_config → resolved
+expected_outcome: resolved
+expected_captures:
+  connectivity_status: "reachable_proxy"
+must_reach:
+  - ping_target
+  - check_http
+  - dns_lookup
+  - assess_connectivity
+  - check_proxy_config
+must_not_reach:
+  - confirm_healthy
+  - dns_troubleshoot
+  - network_escalation
+description: "Host reachable via proxy only — DRI selects reachable_proxy"
+tags:
+  - choices
+  - branching

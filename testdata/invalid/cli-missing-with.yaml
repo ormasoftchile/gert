@@ -1,0 +1,7 @@
+apiVersion: runbook/v0
+meta:
+  name: cli-missing-with
+steps:
+  - id: step_one
+    type: cli
+    title: Missing with block

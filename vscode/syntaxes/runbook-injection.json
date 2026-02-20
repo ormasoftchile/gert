@@ -1,0 +1,95 @@
+{
+  "scopeName": "runbook.kusto.injection",
+  "injectionSelector": "L:source.yaml",
+  "patterns": [
+    {
+      "comment": "Kusto query block after query_type: kusto",
+      "begin": "^(\\s+)(query)(:)\\s*(\\|)\\s*$",
+      "beginCaptures": {
+        "2": { "name": "entity.name.tag.yaml" },
+        "3": { "name": "punctuation.separator.key-value.yaml" },
+        "4": { "name": "keyword.control.flow.block-scalar.literal.yaml" }
+      },
+      "end": "^(?!\\1\\s+\\S|\\s*$)",
+      "patterns": [
+        {
+          "comment": "Template variable {{ .var }}",
+          "match": "\\{\\{\\s*\\.?\\w+[^}]*\\}\\}",
+          "name": "variable.other.template.gert"
+        },
+        {
+          "comment": "Kusto pipe operator",
+          "match": "^\\s*\\|",
+          "name": "keyword.operator.pipe.kusto"
+        },
+        {
+          "comment": "Kusto keywords",
+          "match": "\\b(where|summarize|project|extend|order|take|top|count|join|union|render|distinct|parse|evaluate|let|ago|bin|by|as|asc|desc|and|or|not|in|has|has_any|contains|startswith|endswith|between|iif|iff|countif|sumif|round|dcount|count_distinct|avg|sum|min|max|make_set|make_list|strcat|strcat_array|split|tostring|toint|tolong|todouble|todatetime|format_datetime|datetime|timespan|dynamic)\\b",
+          "name": "keyword.other.kusto"
+        },
+        {
+          "comment": "Kusto string literals",
+          "match": "\"[^\"]*\"",
+          "name": "string.quoted.double.kusto"
+        },
+        {
+          "comment": "Kusto single-quoted strings",
+          "match": "'[^']*'",
+          "name": "string.quoted.single.kusto"
+        },
+        {
+          "comment": "Kusto numeric literals",
+          "match": "\\b\\d+(\\.\\d+)?\\b",
+          "name": "constant.numeric.kusto"
+        },
+        {
+          "comment": "Kusto comments",
+          "match": "//.*$",
+          "name": "comment.line.double-slash.kusto"
+        },
+        {
+          "comment": "Kusto table names (PascalCase)",
+          "match": "\\b(Mon\\w+|Sql\\w+|MonLogin|MonRedirector|MonRgLoad|MonSqlSystemHealth|MonDmCloudDatabaseWaitStats|MonDmRealTimeResourceStats|SqlAzure_Slo|SqlTenant_cache|Sql_DB_VM_Cache_tb)\\b",
+          "name": "entity.name.type.table.kusto"
+        },
+        {
+          "comment": "Kusto built-in functions",
+          "match": "\\b(ago|now|bin|datetime|timespan|todynamic|parse_json|isempty|isnotempty|isnull|isnotnull|coalesce|iff|case|strlen|substring|indexof|replace|trim|toupper|tolower|hash)\\b",
+          "name": "support.function.kusto"
+        }
+      ]
+    },
+    {
+      "comment": "Template variables anywhere in YAML values",
+      "match": "\\{\\{\\s*[^}]+\\}\\}",
+      "name": "variable.other.template.gert"
+    },
+    {
+      "comment": "Expr-lang condition in condition/when fields",
+      "begin": "(condition|when)(:)\\s*'",
+      "beginCaptures": {
+        "1": { "name": "entity.name.tag.yaml" },
+        "2": { "name": "punctuation.separator.key-value.yaml" }
+      },
+      "end": "'",
+      "patterns": [
+        {
+          "match": "\\b(==|!=|&&|\\|\\||!|in|startsWith|endsWith|contains|not|and|or)\\b",
+          "name": "keyword.operator.expression.gert"
+        },
+        {
+          "match": "\"[^\"]*\"",
+          "name": "string.quoted.double.expression.gert"
+        },
+        {
+          "match": "\\b[a-z_][a-z_0-9]*\\b",
+          "name": "variable.other.expression.gert"
+        },
+        {
+          "match": "\\[|\\]",
+          "name": "punctuation.definition.array.gert"
+        }
+      ]
+    }
+  ]
+}

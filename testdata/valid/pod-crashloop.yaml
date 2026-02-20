@@ -1,0 +1,76 @@
+apiVersion: runbook/v0
+meta:
+  name: pod-crashloop-investigation
+  description: Investigate CrashLoopBackOff pods in production
+  vars:
+    namespace: prod
+    service: api-gateway
+  defaults:
+    timeout: "120s"
+  governance:
+    allowed_commands:
+      - kubectl
+      - az
+      - curl
+    deny_env_vars:
+      - "SECRET_*"
+      - "TOKEN"
+      - "AWS_*"
+    redact:
+      - pattern: "(?i)password\\s*[:=]\\s*\\S+"
+        replace: "password: <redacted>"
+    evidence:
+      require_for_manual: true
+      store_full_stdout: false
+steps:
+  - id: check_pods
+    type: cli
+    title: Check pod status
+    with:
+      argv: ["kubectl", "get", "pods", "-n", "{{ .namespace }}", "-l", "app={{ .service }}"]
+    capture:
+      pods: stdout
+    assertions:
+      - not_contains: "CrashLoopBackOff"
+
+  - id: get_logs
+    type: cli
+    title: Retrieve pod logs
+    with:
+      argv: ["kubectl", "logs", "-n", "{{ .namespace }}", "-l", "app={{ .service }}", "--tail=100"]
+    capture:
+      logs: stdout
+    timeout: "60s"
+
+  - id: check_events
+    type: cli
+    title: Check cluster events
+    with:
+      argv: ["kubectl", "get", "events", "-n", "{{ .namespace }}", "--sort-by=.lastTimestamp"]
+    capture:
+      events: stdout
+
+  - id: validate_dashboard
+    type: manual
+    title: Validate metrics in monitoring dashboard
+    instructions: |
+      Open the Grafana dashboard for {{ .service }} in {{ .namespace }}.
+      Confirm that:
+      1. Error rate is below 1%
+      2. P99 latency is below 500ms
+      3. No anomalous traffic patterns
+    required_evidence:
+      - kind: checklist
+        name: metrics_validation
+        items:
+          - "Error rate < 1%"
+          - "P99 latency < 500ms"
+          - "No anomalous traffic"
+      - kind: text
+        name: dashboard_url
+      - kind: attachment
+        name: dashboard_screenshot
+    approvals:
+      min: 1
+      roles: ["DRI"]
+    replay_mode: reuse_evidence

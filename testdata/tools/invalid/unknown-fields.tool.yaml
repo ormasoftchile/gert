@@ -1,0 +1,11 @@
+# Invalid: unknown fields should be rejected by strict decode
+apiVersion: tool/v0
+
+meta:
+  name: unknown
+  binary: foo
+  bogus_field: oops
+
+actions:
+  test:
+    argv: ["test"]

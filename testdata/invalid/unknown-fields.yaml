@@ -1,0 +1,12 @@
+apiVersion: runbook/v0
+meta:
+  name: unknown-fields-test
+  vars:
+    namespace: prod
+  extra_field: should_fail
+steps:
+  - id: step_one
+    type: cli
+    with:
+      argv: ["echo", "hello"]
+    unknown_step_field: invalid

@@ -1,0 +1,2 @@
+expected_outcome: escalated
+description: "Intentional mismatch — runbook completes but test expects escalated"

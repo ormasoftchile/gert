@@ -1,0 +1,6 @@
+# echo tool: command fails with exit code 1
+commands:
+  - argv: ["echo", "hello-from-tool"]
+    stdout: ""
+    stderr: "echo: command failed"
+    exit_code: 1

@@ -1,0 +1,20 @@
+# Invalid: enum on int arg, approval_min without requires_approval, required+default
+apiVersion: tool/v0
+
+meta:
+  name: bad-args
+  binary: something
+
+actions:
+  bad-action:
+    argv: ["do", "thing"]
+    args:
+      count:
+        type: int
+        enum: ["1", "2"]
+      name:
+        type: string
+        required: true
+        default: "should-not-have-default"
+    governance:
+      approval_min: 2

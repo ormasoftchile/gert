@@ -1,0 +1,25 @@
+# DNS resolves but HTTP returns 503 → escalate at the HTTP level
+commands:
+  # dns-check child: nslookup succeeds
+  - argv: ["nslookup", "github.com"]
+    stdout: |
+      Server:  resolver1.example.com
+      Address:  10.0.0.1
+
+      Name:    github.com
+      Address:  140.82.112.3
+    stderr: ""
+    exit_code: 0
+
+  # Parent: curl returns 503
+  - argv: ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "https://github.com"]
+    stdout: "503"
+    stderr: ""
+    exit_code: 0
+
+evidence:
+  # Child step: DRI confirms DNS resolved
+  check_resolution:
+    dns_resolved:
+      kind: text
+      value: "yes"

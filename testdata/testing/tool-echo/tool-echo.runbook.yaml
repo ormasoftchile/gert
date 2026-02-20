@@ -1,0 +1,30 @@
+apiVersion: runbook/v0
+
+tools:
+  echo: ../../tools/echo.tool.yaml
+
+meta:
+  name: tool-echo
+  kind: mitigation
+  description: Tests type:tool step execution with echo tool
+  vars:
+    greeting: hello-from-tool
+
+tree:
+  - step:
+      id: say_hello
+      type: tool
+      title: Echo a greeting
+      tool:
+        name: echo
+        action: say
+        args:
+          message: "{{ .greeting }}"
+      capture:
+        output: stdout
+      outcomes:
+        - when: '{{ contains .output "hello-from-tool" }}'
+          state: resolved
+          recommendation: Tool step executed successfully
+        - state: escalated
+          recommendation: Tool output did not match

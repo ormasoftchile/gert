@@ -1,0 +1,19 @@
+# DRI selects "reachable_direct" → branches to confirm_healthy → no_action
+expected_outcome: no_action
+expected_captures:
+  connectivity_status: "reachable_direct"
+  http_status: "/^[23]/"
+must_reach:
+  - ping_target
+  - check_http
+  - dns_lookup
+  - assess_connectivity
+  - confirm_healthy
+must_not_reach:
+  - check_proxy_config
+  - dns_troubleshoot
+  - network_escalation
+description: "Host reachable via direct connection — DRI selects reachable_direct"
+tags:
+  - choices
+  - branching

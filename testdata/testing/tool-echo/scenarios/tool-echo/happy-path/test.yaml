@@ -1,0 +1,9 @@
+description: "Tool step echoes greeting and resolves"
+expected_outcome: resolved
+expected_captures:
+  output: "hello-from-tool"
+must_reach:
+  - say_hello
+tags:
+  - tool
+  - stdio

@@ -1,0 +1,15 @@
+commands:
+  - argv: ["nslookup", "nonexistent.invalid.test"]
+    stdout: |
+      Server:  resolver1.example.com
+      Address:  10.0.0.1
+
+      *** resolver1.example.com can't find nonexistent.invalid.test: Non-existent domain
+    stderr: ""
+    exit_code: 0
+
+evidence:
+  check_resolution:
+    dns_resolved:
+      kind: text
+      value: "no"

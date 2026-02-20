@@ -1,0 +1,12 @@
+apiVersion: runbook/v0
+meta:
+  name: minimal
+  vars:
+    greeting: hello
+steps:
+  - id: step_one
+    type: cli
+    with:
+      argv: ["echo", "{{ .greeting }}"]
+    capture:
+      output: stdout

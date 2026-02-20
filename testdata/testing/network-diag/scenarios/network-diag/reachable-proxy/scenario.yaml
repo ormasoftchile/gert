@@ -1,0 +1,29 @@
+commands:
+  - argv: ["ping", "-n", "2", "internal.corp.example.com"]
+    stdout: |
+      Pinging internal.corp.example.com [10.50.1.100] with 32 bytes of data:
+      Request timed out.
+      Request timed out.
+    stderr: ""
+    exit_code: 1
+
+  - argv: ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "https://internal.corp.example.com:443"]
+    stdout: "200"
+    stderr: ""
+    exit_code: 0
+
+  - argv: ["nslookup", "internal.corp.example.com"]
+    stdout: |
+      Server:  resolver1.example.com
+      Address:  10.0.0.1
+
+      Name:    internal.corp.example.com
+      Address:  10.50.1.100
+    stderr: ""
+    exit_code: 0
+
+evidence:
+  assess_connectivity:
+    connectivity_status:
+      kind: text
+      value: "reachable_proxy"

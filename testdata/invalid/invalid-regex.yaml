@@ -1,0 +1,12 @@
+apiVersion: runbook/v0
+meta:
+  name: invalid-redaction-regex
+  governance:
+    redact:
+      - pattern: "[invalid(regex"
+        replace: "<redacted>"
+steps:
+  - id: step_one
+    type: cli
+    with:
+      argv: ["echo", "test"]

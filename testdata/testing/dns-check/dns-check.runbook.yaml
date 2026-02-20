@@ -1,0 +1,81 @@
+apiVersion: runbook/v0
+meta:
+    name: dns-check
+    kind: mitigation
+    description: Synthetic test runbook — DNS resolution check with branching on result.
+    inputs:
+        hostname:
+            from: prompt
+            description: Hostname to resolve (e.g. github.com)
+            example: github.com
+tree:
+    # Step 1: Resolve DNS
+    - step:
+        id: resolve_dns
+        type: cli
+        title: Resolve DNS for hostname
+        with:
+            argv: ["nslookup", "{{ .hostname }}"]
+        capture:
+            dns_output: stdout
+        outcomes:
+            - when: '{{ eq .dns_output "" }}'
+              state: escalated
+              recommendation: nslookup returned no output for {{ .hostname }}. Command may have failed.
+      branches:
+        - condition: '{{ ne .dns_output "" }}'
+          label: DNS returned output
+          steps:
+            # Step 2: Check if resolution succeeded (contains "Name:" and "Address")
+            - step:
+                id: check_resolution
+                type: manual
+                title: Assess DNS resolution result
+                instructions: |
+                    **Hostname:** {{ .hostname }}
+                    **DNS Output:**
+                    ```
+                    {{ .dns_output }}
+                    ```
+
+                    Does the output show a resolved address?
+                choices:
+                    variable: dns_resolved
+                    prompt: "Did DNS resolve successfully?"
+                    options:
+                        - value: "yes"
+                          label: "Yes — address found"
+                          description: "Output contains a Name and Address line"
+                        - value: "no"
+                          label: "No — lookup failed"
+                          description: "Output shows an error or no address"
+              branches:
+                - condition: 'dns_resolved == "yes"'
+                  label: DNS resolved
+                  steps:
+                    - step:
+                        id: dns_healthy
+                        type: manual
+                        title: DNS resolution healthy
+                        instructions: DNS resolution for **{{ .hostname }}** succeeded.
+                        outcomes:
+                            - state: resolved
+                              recommendation: DNS resolution successful for {{ .hostname }}.
+
+                - condition: 'dns_resolved == "no"'
+                  label: DNS failed
+                  steps:
+                    - step:
+                        id: dns_failed
+                        type: manual
+                        title: DNS resolution failed
+                        instructions: |
+                            DNS resolution failed for **{{ .hostname }}**.
+
+                            Possible causes:
+                            - Hostname is misspelled
+                            - DNS server is unreachable
+                            - CNAME/alias chain is broken
+                        outcomes:
+                            - state: escalated
+                              recommendation: DNS resolution failed for {{ .hostname }}. Escalate to networking team.
