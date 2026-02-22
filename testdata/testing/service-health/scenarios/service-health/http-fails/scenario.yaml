@@ -11,9 +11,9 @@ commands:
     stderr: ""
     exit_code: 0
 
-  # Parent: curl returns 503
-  - argv: ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "https://github.com"]
-    stdout: "503"
+  # Parent: curl HEAD returns 503 headers
+  - argv: ["curl", "-s", "-I", "https://github.com"]
+    stdout: "HTTP/2 503\r\ncontent-type: text/html\r\n"
     stderr: ""
     exit_code: 0
 

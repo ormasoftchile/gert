@@ -493,10 +493,10 @@
           "type": "object"
         },
         "tools": {
-          "additionalProperties": {
+          "items": {
             "type": "string"
           },
-          "type": "object"
+          "type": "array"
         },
         "meta": {
           "$ref": "#/$defs/Meta"

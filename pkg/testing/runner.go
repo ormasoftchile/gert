@@ -240,9 +240,9 @@ func (r *Runner) executeReplay(runbookPath string, originalRB *schema.Runbook, s
 	if len(rb.Tools) > 0 {
 		tm := tools.NewManager(executor, engine.Redact)
 		baseDir := filepath.Dir(runbookPath)
-		for alias, path := range rb.Tools {
-			if err := tm.Load(alias, path, baseDir); err != nil {
-				fmt.Fprintf(os.Stderr, "test: warning: failed to load tool %q: %v\n", alias, err)
+		for _, name := range rb.Tools {
+			if err := tm.Load(name, filepath.Join("tools", name+".tool.yaml"), baseDir); err != nil {
+				fmt.Fprintf(os.Stderr, "test: warning: failed to load tool %q: %v\n", name, err)
 			}
 		}
 		engine.ToolManager = tm

@@ -1,7 +1,7 @@
 apiVersion: runbook/v0
 
 tools:
-  kubectl: ../../tools/kubectl.tool.yaml
+  - kubectl
 
 meta:
   name: tool-step-test

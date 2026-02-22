@@ -1,4 +1,8 @@
 apiVersion: runbook/v0
+
+tools:
+    - nslookup
+
 meta:
     name: dns-check
     kind: mitigation
@@ -12,10 +16,13 @@ tree:
     # Step 1: Resolve DNS
     - step:
         id: resolve_dns
-        type: cli
+        type: tool
         title: Resolve DNS for hostname
-        with:
-            argv: ["nslookup", "{{ .hostname }}"]
+        tool:
+            name: nslookup
+            action: lookup
+            args:
+                host: "{{ .hostname }}"
         capture:
             dns_output: stdout
         outcomes:

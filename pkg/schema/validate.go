@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	sjsonschema "github.com/santhosh-tekuri/jsonschema/v6"
@@ -751,17 +752,14 @@ func validateDomainWithPath(rb *Runbook, baseDir string) []*ValidationError {
 	// Load and cache tool definitions for deep validation
 	if len(rb.Tools) > 0 && baseDir != "" {
 		toolDefs := make(map[string]*ToolDefinition)
-		for alias, path := range rb.Tools {
-			resolved := path
-			if !filepath.IsAbs(path) {
-				resolved = filepath.Join(baseDir, path)
-			}
+		for _, name := range rb.Tools {
+			resolved := filepath.Join(baseDir, "tools", name+".tool.yaml")
 			td, loadErr := LoadToolFile(resolved)
 			if loadErr != nil {
 				errs = append(errs, &ValidationError{
 					Phase:    "domain",
-					Path:     fmt.Sprintf("tools.%s", alias),
-					Message:  fmt.Sprintf("failed to load tool definition %q: %v", path, loadErr),
+					Path:     fmt.Sprintf("tools[%s]", name),
+					Message:  fmt.Sprintf("failed to load tool definition for %q: %v", name, loadErr),
 					Severity: "warning",
 				})
 				continue
@@ -771,13 +769,13 @@ func validateDomainWithPath(rb *Runbook, baseDir string) []*ValidationError {
 				if e.Severity == "error" {
 					errs = append(errs, &ValidationError{
 						Phase:    "domain",
-						Path:     fmt.Sprintf("tools.%s", alias),
-						Message:  fmt.Sprintf("tool %q: %s", alias, e.Message),
+						Path:     fmt.Sprintf("tools[%s]", name),
+						Message:  fmt.Sprintf("tool %q: %s", name, e.Message),
 						Severity: "warning",
 					})
 				}
 			}
-			toolDefs[alias] = td
+			toolDefs[name] = td
 		}
 
 		// Deep-validate tool steps against loaded definitions
@@ -924,9 +922,9 @@ func validateToolStep(path string, s Step, rb *Runbook) []*ValidationError {
 		})
 	}
 
-	// Check tool.name references an alias in tools: map
+	// Check tool.name references a name in tools: list
 	if s.Tool.Name != "" && rb.Tools != nil {
-		if _, ok := rb.Tools[s.Tool.Name]; !ok {
+		if !slices.Contains(rb.Tools, s.Tool.Name) {
 			errs = append(errs, &ValidationError{
 				Phase:    "domain",
 				Path:     path + ".tool.name",
@@ -938,7 +936,7 @@ func validateToolStep(path string, s Step, rb *Runbook) []*ValidationError {
 		errs = append(errs, &ValidationError{
 			Phase:    "domain",
 			Path:     path + ".tool.name",
-			Message:  fmt.Sprintf("tool step %q references tool %q but no 'tools:' map is declared", s.ID, s.Tool.Name),
+			Message:  fmt.Sprintf("tool step %q references tool %q but no 'tools:' list is declared", s.ID, s.Tool.Name),
 			Severity: "error",
 		})
 	}

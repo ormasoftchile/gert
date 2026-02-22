@@ -4,6 +4,9 @@ apiVersion: runbook/v0
 imports:
     dns-check: ../dns-check/dns-check.runbook.yaml
 
+tools:
+    - curl
+
 meta:
     name: service-health
     kind: mitigation
@@ -39,14 +42,17 @@ tree:
     # ═══════════════════════════════════════════════════════════════
     - step:
         id: check_http
-        type: cli
+        type: tool
         title: Check HTTP endpoint
-        with:
-            argv: ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "https://{{ .hostname }}"]
+        tool:
+            name: curl
+            action: head
+            args:
+                url: "https://{{ .hostname }}"
         capture:
-            http_status: stdout
+            http_response: stdout
       branches:
-        - condition: '{{ eq .http_status "200" }}'
+        - condition: '{{ contains .http_response "200" }}'
           label: HTTP 200 OK
           steps:
             - step:
@@ -56,12 +62,12 @@ tree:
                 instructions: |
                     **{{ .hostname }}** is reachable.
                     - DNS: ✓ resolved
-                    - HTTP status: {{ .http_status }}
+                    - HTTP status: {{ .http_response }}
                 outcomes:
                     - state: resolved
-                      recommendation: "Service {{ .hostname }} is healthy. DNS resolves, HTTP returns {{ .http_status }}."
+                      recommendation: "Service {{ .hostname }} is healthy. DNS resolves, HTTP returns 200."
 
-        - condition: '{{ ne .http_status "200" }}'
+        - condition: '{{ not (contains .http_response "200") }}'
           label: HTTP error
           steps:
             - step:
@@ -69,7 +75,12 @@ tree:
                 type: manual
                 title: HTTP check failed
                 instructions: |
-                    **{{ .hostname }}** DNS resolves but HTTP returned **{{ .http_status }}**.
+                    **{{ .hostname }}** DNS resolves but HTTP did not return 200.
+
+                    Response headers:
+                    ```
+                    {{ .http_response }}
+                    ```
 
                     Possible causes:
                     - Service is down
@@ -77,4 +88,4 @@ tree:
                     - TLS certificate issue
                 outcomes:
                     - state: escalated
-                      recommendation: "DNS resolves for {{ .hostname }} but HTTP returned {{ .http_status }}. Escalate to service team."
+                      recommendation: "DNS resolves for {{ .hostname }} but HTTP check failed. Escalate to service team."

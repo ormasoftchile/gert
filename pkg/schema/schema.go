@@ -14,7 +14,7 @@ import (
 type Runbook struct {
 	APIVersion string            `yaml:"apiVersion" json:"apiVersion" jsonschema:"required,enum=runbook/v0,enum=runbook/v1"`
 	Imports    map[string]string `yaml:"imports,omitempty" json:"imports,omitempty"`
-	Tools      map[string]string `yaml:"tools,omitempty"   json:"tools,omitempty"`
+	Tools      []string          `yaml:"tools,omitempty"   json:"tools,omitempty"`
 	Meta       Meta              `yaml:"meta"       json:"meta"       jsonschema:"required"`
 	Steps      []Step            `yaml:"steps,omitempty" json:"steps,omitempty"`
 	Tree       []TreeNode        `yaml:"tree,omitempty"  json:"tree,omitempty"`
