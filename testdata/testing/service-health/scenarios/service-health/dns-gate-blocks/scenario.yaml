@@ -11,9 +11,9 @@ commands:
     exit_code: 0
 
   # Parent: curl should NOT be called (gate stops execution)
-  # Including it with a failure code to verify it's never reached
-  - argv: ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "https://nonexistent.invalid.test"]
-    stdout: "000"
+  # Including it with a failure to verify it's never reached
+  - argv: ["curl", "-s", "-I", "https://nonexistent.invalid.test"]
+    stdout: ""
     stderr: "curl: (6) Could not resolve host: nonexistent.invalid.test"
     exit_code: 6
 

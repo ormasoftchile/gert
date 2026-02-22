@@ -1,7 +1,7 @@
 apiVersion: runbook/v0
 
 tools:
-  echo: ../../tools/echo.tool.yaml
+  - echo
 
 meta:
   name: tool-echo

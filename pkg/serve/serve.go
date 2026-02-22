@@ -331,9 +331,9 @@ func (s *Server) handleExecStart(msg *Message) {
 		if params.Runbook != "" {
 			baseDir = filepath.Dir(params.Runbook)
 		}
-		for alias, path := range rb.Tools {
-			if err := tm.Load(alias, path, baseDir); err != nil {
-				fmt.Fprintf(os.Stderr, "serve: WARNING failed to load tool %q: %v\n", alias, err)
+		for _, name := range rb.Tools {
+			if err := tm.Load(name, filepath.Join("tools", name+".tool.yaml"), baseDir); err != nil {
+				fmt.Fprintf(os.Stderr, "serve: WARNING failed to load tool %q: %v\n", name, err)
 			}
 		}
 		engine.ToolManager = tm
@@ -1127,9 +1127,9 @@ func (s *Server) enterInvoke(msg *Message, step schema.Step) error {
 	if len(childRB.Tools) > 0 {
 		tm := tools.NewManager(s.engine.Executor, childEngine.Redact)
 		childBaseDir := filepath.Dir(resolvedFile)
-		for alias, path := range childRB.Tools {
-			if err := tm.Load(alias, path, childBaseDir); err != nil {
-				fmt.Fprintf(os.Stderr, "serve: WARNING failed to load child tool %q: %v\n", alias, err)
+		for _, name := range childRB.Tools {
+			if err := tm.Load(name, filepath.Join("tools", name+".tool.yaml"), childBaseDir); err != nil {
+				fmt.Fprintf(os.Stderr, "serve: WARNING failed to load child tool %q: %v\n", name, err)
 			}
 		}
 		childEngine.ToolManager = tm

@@ -3,6 +3,7 @@ package schema
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -185,7 +186,7 @@ func TestValidateToolStepInRunbook(t *testing.T) {
 	t.Run("valid tool step", func(t *testing.T) {
 		rb := &Runbook{
 			APIVersion: "runbook/v0",
-			Tools:      map[string]string{"kubectl": "../tools/kubectl.tool.yaml"},
+			Tools:      []string{"kubectl"},
 			Meta:       Meta{Name: "test"},
 			Tree: []TreeNode{
 				{Step: Step{
@@ -206,7 +207,7 @@ func TestValidateToolStepInRunbook(t *testing.T) {
 	t.Run("missing tool config", func(t *testing.T) {
 		rb := &Runbook{
 			APIVersion: "runbook/v0",
-			Tools:      map[string]string{"kubectl": "../tools/kubectl.tool.yaml"},
+			Tools:      []string{"kubectl"},
 			Meta:       Meta{Name: "test"},
 			Tree: []TreeNode{
 				{Step: Step{ID: "s1", Type: "tool"}},
@@ -219,7 +220,7 @@ func TestValidateToolStepInRunbook(t *testing.T) {
 	t.Run("missing tool.name", func(t *testing.T) {
 		rb := &Runbook{
 			APIVersion: "runbook/v0",
-			Tools:      map[string]string{"kubectl": "../tools/kubectl.tool.yaml"},
+			Tools:      []string{"kubectl"},
 			Meta:       Meta{Name: "test"},
 			Tree: []TreeNode{
 				{Step: Step{ID: "s1", Type: "tool", Tool: &ToolStepConfig{Action: "get-pods"}}},
@@ -232,7 +233,7 @@ func TestValidateToolStepInRunbook(t *testing.T) {
 	t.Run("missing tool.action", func(t *testing.T) {
 		rb := &Runbook{
 			APIVersion: "runbook/v0",
-			Tools:      map[string]string{"kubectl": "../tools/kubectl.tool.yaml"},
+			Tools:      []string{"kubectl"},
 			Meta:       Meta{Name: "test"},
 			Tree: []TreeNode{
 				{Step: Step{ID: "s1", Type: "tool", Tool: &ToolStepConfig{Name: "kubectl"}}},
@@ -242,10 +243,10 @@ func TestValidateToolStepInRunbook(t *testing.T) {
 		expectError(t, errs, "requires 'tool.action'")
 	})
 
-	t.Run("tool not in tools map", func(t *testing.T) {
+	t.Run("tool not in tools list", func(t *testing.T) {
 		rb := &Runbook{
 			APIVersion: "runbook/v0",
-			Tools:      map[string]string{"kubectl": "../tools/kubectl.tool.yaml"},
+			Tools:      []string{"kubectl"},
 			Meta:       Meta{Name: "test"},
 			Tree: []TreeNode{
 				{Step: Step{ID: "s1", Type: "tool", Tool: &ToolStepConfig{Name: "unknown", Action: "x"}}},
@@ -255,7 +256,7 @@ func TestValidateToolStepInRunbook(t *testing.T) {
 		expectError(t, errs, "not declared in 'tools:'")
 	})
 
-	t.Run("no tools map declared", func(t *testing.T) {
+	t.Run("no tools list declared", func(t *testing.T) {
 		rb := &Runbook{
 			APIVersion: "runbook/v0",
 			Meta:       Meta{Name: "test"},
@@ -264,7 +265,7 @@ func TestValidateToolStepInRunbook(t *testing.T) {
 			},
 		}
 		errs := ValidateDomain(rb)
-		expectError(t, errs, "no 'tools:' map is declared")
+		expectError(t, errs, "no 'tools:' list is declared")
 	})
 }
 
@@ -293,8 +294,8 @@ func TestLoadRunbookWithToolStep(t *testing.T) {
 	if step.Tool.Args["namespace"] != "{{ .namespace }}" {
 		t.Errorf("tool.args.namespace = %q, want template", step.Tool.Args["namespace"])
 	}
-	if rb.Tools == nil || rb.Tools["kubectl"] == "" {
-		t.Error("runbook.Tools['kubectl'] not loaded")
+	if !slices.Contains(rb.Tools, "kubectl") {
+		t.Error("runbook.Tools does not contain 'kubectl'")
 	}
 }
 
