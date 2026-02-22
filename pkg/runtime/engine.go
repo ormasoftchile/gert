@@ -417,6 +417,18 @@ func (e *Engine) chainToRunbook(ctx context.Context, outcome schema.Outcome) err
 	childEngine.xtsProvider = e.xtsProvider
 	childEngine.XTSScenario = e.XTSScenario
 
+	// Load child tool definitions declared in tools: [name, ...]
+	if len(childRB.Tools) > 0 {
+		tm := tools.NewManager(e.Executor, childEngine.Redact)
+		baseDir := filepath.Dir(resolvedFile)
+		for _, name := range childRB.Tools {
+			if err := tm.Load(name, filepath.Join("tools", name+".tool.yaml"), baseDir); err != nil {
+				fmt.Fprintf(os.Stderr, "runtime: warning: failed to load child tool %q: %v\n", name, err)
+			}
+		}
+		childEngine.ToolManager = tm
+	}
+
 	fmt.Printf("  Child Run ID: %s (depth: %d)\n", childEngine.GetRunID(), depth)
 
 	// Run child
@@ -514,6 +526,18 @@ func (e *Engine) executeInvokeStep(ctx context.Context, step schema.Step, result
 	// Inherit XTS provider and scenario
 	childEngine.xtsProvider = e.xtsProvider
 	childEngine.XTSScenario = e.XTSScenario
+
+	// Load child tool definitions declared in tools: [name, ...]
+	if len(childRB.Tools) > 0 {
+		tm := tools.NewManager(e.Executor, childEngine.Redact)
+		baseDir := filepath.Dir(resolvedFile)
+		for _, name := range childRB.Tools {
+			if err := tm.Load(name, filepath.Join("tools", name+".tool.yaml"), baseDir); err != nil {
+				fmt.Fprintf(os.Stderr, "runtime: warning: failed to load child tool %q: %v\n", name, err)
+			}
+		}
+		childEngine.ToolManager = tm
+	}
 
 	fmt.Fprintf(os.Stderr, "  Child Run ID: %s (depth: %d)\n", childEngine.GetRunID(), depth)
 

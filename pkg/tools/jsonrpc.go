@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,15 +38,46 @@ type jsonrpcRequest struct {
 // jsonrpcResponse is a JSON-RPC 2.0 response.
 type jsonrpcResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
+	ID      json.RawMessage `json:"id"`
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   *jsonrpcError   `json:"error,omitempty"`
 }
 
 // jsonrpcError is a JSON-RPC error object.
 type jsonrpcError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code     int
+	CodeText string
+	Message  string
+}
+
+func (e *jsonrpcError) UnmarshalJSON(data []byte) error {
+	var aux struct {
+		Code    json.RawMessage `json:"code"`
+		Message string          `json:"message"`
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	e.Message = aux.Message
+
+	var codeInt int
+	if err := json.Unmarshal(aux.Code, &codeInt); err == nil {
+		e.Code = codeInt
+		e.CodeText = strconv.Itoa(codeInt)
+		return nil
+	}
+
+	var codeStr string
+	if err := json.Unmarshal(aux.Code, &codeStr); err == nil {
+		e.CodeText = codeStr
+		if parsed, parseErr := strconv.Atoi(codeStr); parseErr == nil {
+			e.Code = parsed
+		}
+		return nil
+	}
+
+	return fmt.Errorf("invalid jsonrpc error code: %s", string(aux.Code))
 }
 
 // spawnJSONRPC starts a long-lived tool process and waits for the ready signal.
@@ -175,22 +207,53 @@ func (p *jsonrpcProcess) Call(method string, params interface{}) (json.RawMessag
 		return nil, fmt.Errorf("write request: %w", err)
 	}
 
-	// Read response line
-	line, err := p.reader.ReadString('\n')
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
+	for {
+		line, err := p.reader.ReadString('\n')
+		if err != nil {
+			return nil, fmt.Errorf("read response: %w", err)
+		}
 
-	var resp jsonrpcResponse
-	if err := json.Unmarshal([]byte(line), &resp); err != nil {
-		return nil, fmt.Errorf("unmarshal response: %w (raw: %s)", err, strings.TrimSpace(line))
-	}
+		var env struct {
+			JSONRPC string          `json:"jsonrpc"`
+			ID      json.RawMessage `json:"id,omitempty"`
+			Method  string          `json:"method,omitempty"`
+			Result  json.RawMessage `json:"result,omitempty"`
+			Error   *jsonrpcError   `json:"error,omitempty"`
+		}
+		if err := json.Unmarshal([]byte(line), &env); err != nil {
+			return nil, fmt.Errorf("unmarshal response: %w (raw: %s)", err, strings.TrimSpace(line))
+		}
 
-	if resp.Error != nil {
-		return nil, fmt.Errorf("tool error [%d]: %s", resp.Error.Code, resp.Error.Message)
-	}
+		// Ignore notifications/events from the server (messages without id).
+		if len(env.ID) == 0 {
+			continue
+		}
 
-	return resp.Result, nil
+		// Accept both numeric ids (1) and string ids ("1").
+		idMatched := false
+		var idNum int64
+		if err := json.Unmarshal(env.ID, &idNum); err == nil {
+			idMatched = (idNum == id)
+		} else {
+			var idStr string
+			if err := json.Unmarshal(env.ID, &idStr); err == nil {
+				idMatched = (idStr == fmt.Sprintf("%d", id))
+			}
+		}
+		if !idMatched {
+			continue
+		}
+
+		if env.Error != nil {
+			code := env.Error.CodeText
+			if code == "" {
+				code = strconv.Itoa(env.Error.Code)
+			}
+			return nil, fmt.Errorf("tool error [%s]: %s", code, env.Error.Message)
+		}
+
+		return env.Result, nil
+	}
 }
 
 // Shutdown sends a shutdown method (if configured) and terminates the process.

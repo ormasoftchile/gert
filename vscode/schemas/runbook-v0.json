@@ -82,6 +82,47 @@
         "argv"
       ]
     },
+    "ChoiceConfig": {
+      "properties": {
+        "variable": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "#/$defs/ChoiceOption"
+          },
+          "type": "array",
+          "minItems": 2
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "variable",
+        "options"
+      ]
+    },
+    "ChoiceOption": {
+      "properties": {
+        "value": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "value"
+      ]
+    },
     "Defaults": {
       "properties": {
         "timeout": {
@@ -130,6 +171,24 @@
         "kind",
         "name"
       ]
+    },
+    "Gate": {
+      "properties": {
+        "stop_if": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "on_error": {
+          "type": "string",
+          "enum": [
+            "skip"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
     },
     "GovernancePolicy": {
       "properties": {
@@ -186,6 +245,24 @@
       "type": "object",
       "required": [
         "from"
+      ]
+    },
+    "InvokeConfig": {
+      "properties": {
+        "runbook": {
+          "type": "string"
+        },
+        "inputs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "runbook"
       ]
     },
     "JSONPathAssertion": {
@@ -405,8 +482,21 @@
         "apiVersion": {
           "type": "string",
           "enum": [
-            "runbook/v0"
+            "runbook/v0",
+            "runbook/v1"
           ]
+        },
+        "imports": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "tools": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
         },
         "meta": {
           "$ref": "#/$defs/Meta"
@@ -466,7 +556,9 @@
           "enum": [
             "cli",
             "manual",
-            "xts"
+            "xts",
+            "invoke",
+            "tool"
           ]
         },
         "title": {
@@ -502,6 +594,9 @@
         "approvals": {
           "$ref": "#/$defs/ApprovalRequirement"
         },
+        "choices": {
+          "$ref": "#/$defs/ChoiceConfig"
+        },
         "capture": {
           "additionalProperties": {
             "type": "string"
@@ -523,6 +618,15 @@
           "enum": [
             "reuse_evidence"
           ]
+        },
+        "invoke": {
+          "$ref": "#/$defs/InvokeConfig"
+        },
+        "gate": {
+          "$ref": "#/$defs/Gate"
+        },
+        "tool": {
+          "$ref": "#/$defs/ToolStepConfig"
         }
       },
       "additionalProperties": false,
@@ -530,6 +634,28 @@
       "required": [
         "id",
         "type"
+      ]
+    },
+    "ToolStepConfig": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string"
+        },
+        "args": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "action"
       ]
     },
     "TreeNode": {
