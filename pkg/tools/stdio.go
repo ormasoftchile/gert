@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ormasoftchile/gert/pkg/governance"
+	"github.com/ormasoftchile/gert/pkg/providers"
 	"github.com/ormasoftchile/gert/pkg/schema"
 )
 
@@ -54,9 +55,9 @@ func (m *Manager) executeStdio(ctx context.Context, td *schema.ToolDefinition, a
 	start := time.Now()
 
 	// Execute via shared executor (works with real, replay, and dry-run)
-	cmdResult, err := m.executor.Execute(ctx, binary, resolvedArgv, nil)
+	cmdResult, usedBinary, err := m.executeWithBinaryFallback(ctx, binary, resolvedArgv)
 	if err != nil {
-		return nil, fmt.Errorf("execute %s: %w", binary, err)
+		return nil, fmt.Errorf("execute %s: %w", usedBinary, err)
 	}
 
 	duration := time.Since(start)
@@ -105,4 +106,38 @@ func (m *Manager) executeStdio(ctx context.Context, td *schema.ToolDefinition, a
 		Duration:     duration,
 		RedactedArgs: redactedArgs,
 	}, nil
+}
+
+func (m *Manager) executeWithBinaryFallback(ctx context.Context, binary string, argv []string) (*providers.CommandResult, string, error) {
+	candidates := []string{binary}
+	lower := strings.ToLower(strings.TrimSpace(binary))
+	if lower == "xts" || lower == "xts-cli" || lower == "xts-server" || lower == "cli" {
+		candidates = append(candidates, "xts-cli", "xts", "cli", "xts-cli.cmd", "xts.cmd", "cli.cmd")
+	}
+
+	seen := make(map[string]bool)
+	var lastErr error
+	lastBin := binary
+	for _, candidate := range candidates {
+		if seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		lastBin = candidate
+		result, err := m.executor.Execute(ctx, candidate, argv, nil)
+		if err == nil {
+			return result, candidate, nil
+		}
+		lastErr = err
+		errText := strings.ToLower(err.Error())
+		if strings.Contains(errText, "executable file not found") || strings.Contains(errText, "not found in %path%") || strings.Contains(errText, "file not found") {
+			continue
+		}
+		return nil, candidate, err
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("tool binary %q not found in PATH", binary)
+	}
+	return nil, lastBin, lastErr
 }

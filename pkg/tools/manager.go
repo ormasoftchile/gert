@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -266,14 +267,19 @@ func (m *Manager) getOrSpawnProcess(ctx context.Context, alias string, td *schem
 		binary = td.Transport.Binary
 	}
 
+	resolvedBinary, err := resolveToolBinary(binary)
+	if err != nil {
+		return nil, err
+	}
+
 	var argv []string
 	if td.Transport.Startup != nil {
 		argv = td.Transport.Startup.Argv
 	}
 
-	fmt.Fprintf(os.Stderr, "tools: spawning jsonrpc process %q %v\n", binary, argv)
+	fmt.Fprintf(os.Stderr, "tools: spawning jsonrpc process %q %v\n", resolvedBinary, argv)
 
-	proc, err := spawnJSONRPC(ctx, binary, argv, td.Transport.Startup)
+	proc, err := spawnJSONRPC(ctx, resolvedBinary, argv, td.Transport.Startup)
 	if err != nil {
 		return nil, err
 	}
@@ -307,6 +313,22 @@ func (m *Manager) executeJSONRPC(ctx context.Context, alias string, td *schema.T
 	// Send JSON-RPC call
 	resultRaw, err := proc.Call(act.Method, params)
 	if err != nil {
+		if (strings.Contains(err.Error(), "UNKNOWN_METHOD") || strings.Contains(strings.ToLower(err.Error()), "unknown method")) && strings.Contains(act.Method, "/") {
+			if idx := strings.LastIndex(act.Method, "/"); idx >= 0 && idx < len(act.Method)-1 {
+				fallbackMethod := act.Method[idx+1:]
+				resultRaw, err = proc.Call(fallbackMethod, params)
+				if err == nil {
+					fmt.Fprintf(os.Stderr, "tools: jsonrpc fallback method %q -> %q\n", act.Method, fallbackMethod)
+				} else {
+					err = fmt.Errorf("jsonrpc call %q (fallback %q): %w", act.Method, fallbackMethod, err)
+				}
+			}
+		}
+
+		if err == nil {
+			goto callSucceeded
+		}
+
 		// If process died, remove it so next call respawns
 		if !proc.alive() {
 			m.mu.Lock()
@@ -315,6 +337,8 @@ func (m *Manager) executeJSONRPC(ctx context.Context, alias string, td *schema.T
 		}
 		return nil, fmt.Errorf("jsonrpc call %q: %w", act.Method, err)
 	}
+
+callSucceeded:
 
 	duration := time.Since(start)
 
@@ -419,6 +443,30 @@ func resolveArgvTemplates(argv []string, data map[string]string) ([]string, erro
 		resolved[i] = buf.String()
 	}
 	return resolved, nil
+}
+
+func resolveToolBinary(binary string) (string, error) {
+	binary = strings.TrimSpace(binary)
+	if binary == "" {
+		return "", fmt.Errorf("tool binary is empty")
+	}
+
+	if p, err := exec.LookPath(binary); err == nil {
+		return p, nil
+	}
+
+	// XTS compatibility aliases across environments/installations.
+	lower := strings.ToLower(binary)
+	if lower == "xts" || lower == "xts-cli" || lower == "xts-server" || lower == "cli" {
+		candidates := []string{"xts-cli", "xts", "cli", "xts-cli.cmd", "xts.cmd", "cli.cmd"}
+		for _, candidate := range candidates {
+			if p, err := exec.LookPath(candidate); err == nil {
+				return p, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("tool binary %q not found in PATH", binary)
 }
 
 // getOrSpawnMCPProcess returns an existing live MCP process or spawns a new one.

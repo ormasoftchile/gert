@@ -128,8 +128,8 @@ func TestJsonrpcResponseUnmarshal(t *testing.T) {
 		if err := json.Unmarshal([]byte(raw), &resp); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
-		if resp.ID != 1 {
-			t.Errorf("id = %d, want 1", resp.ID)
+		if string(resp.ID) != "1" {
+			t.Errorf("id = %s, want 1", string(resp.ID))
 		}
 		if resp.Error != nil {
 			t.Errorf("unexpected error: %v", resp.Error)

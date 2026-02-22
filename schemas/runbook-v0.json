@@ -493,10 +493,17 @@
           "type": "object"
         },
         "tools": {
+<<<<<<< Updated upstream
           "items": {
             "type": "string"
           },
           "type": "array"
+=======
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+>>>>>>> Stashed changes
         },
         "meta": {
           "$ref": "#/$defs/Meta"
