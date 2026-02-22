@@ -39,6 +39,7 @@ var templateVarRe = regexp.MustCompile(`\{\{\s*\.(\w+)\s*\}\}`)
 // Engine is the runtime execution engine that drives runbook execution.
 type Engine struct {
 	Runbook     *schema.Runbook
+	Project     *schema.Project     // package resolution context (nil = legacy mode)
 	State       *RunState
 	Gov         *governance.GovernanceEngine
 	Redact      []*governance.CompiledRedaction
@@ -361,10 +362,17 @@ func (e *Engine) chainToRunbook(ctx context.Context, outcome schema.Outcome) err
 		return fmt.Errorf("resolve next_runbook file: %w", err)
 	}
 
-	// Resolve relative to the parent runbook's directory
-	if !filepath.IsAbs(resolvedFile) && e.RunbookPath != "" {
+	// Try project-aware resolution first, then fall back to relative path
+	if e.Project != nil {
+		if projResolved, err := e.Project.ResolveRunbookRef(resolvedFile); err == nil {
+			resolvedFile = projResolved
+		} else if !filepath.IsAbs(resolvedFile) && e.RunbookPath != "" {
+			resolvedFile = filepath.Join(filepath.Dir(e.RunbookPath), resolvedFile)
+		}
+	} else if !filepath.IsAbs(resolvedFile) && e.RunbookPath != "" {
 		resolvedFile = filepath.Join(filepath.Dir(e.RunbookPath), resolvedFile)
 	}
+	resolvedFile = normalizeRunbookPathRef(resolvedFile)
 
 	fmt.Printf("\n→ Chaining to: %s\n", resolvedFile)
 
@@ -417,12 +425,16 @@ func (e *Engine) chainToRunbook(ctx context.Context, outcome schema.Outcome) err
 	childEngine.xtsProvider = e.xtsProvider
 	childEngine.XTSScenario = e.XTSScenario
 
+	// Inherit project context for package resolution
+	childEngine.Project = e.Project
+
 	// Load child tool definitions declared in tools: [name, ...]
 	if len(childRB.Tools) > 0 {
 		tm := tools.NewManager(e.Executor, childEngine.Redact)
 		baseDir := filepath.Dir(resolvedFile)
 		for _, name := range childRB.Tools {
-			if err := tm.Load(name, filepath.Join("tools", name+".tool.yaml"), baseDir); err != nil {
+			resolved := schema.ResolveToolPathCompat(e.Project, childRB, name, baseDir)
+			if err := tm.Load(name, resolved, ""); err != nil {
 				fmt.Fprintf(os.Stderr, "runtime: warning: failed to load child tool %q: %v\n", name, err)
 			}
 		}
@@ -451,16 +463,23 @@ func (e *Engine) chainToRunbook(ctx context.Context, outcome schema.Outcome) err
 	return childErr
 }
 
-// resolveImport resolves an invoke runbook alias to a file path using imports.
-// If the alias is found in the imports map, returns the resolved path.
-// Otherwise, treats it as a direct file path.
+// resolveImport resolves an invoke runbook reference to a file path.
+// Resolution order: imports map → project-aware resolution → normalize as path.
 func (e *Engine) resolveImport(alias string) string {
+	// 1. Legacy imports map (v0 compat)
 	if e.Runbook.Imports != nil {
 		if path, ok := e.Runbook.Imports[alias]; ok {
 			return path
 		}
 	}
-	return alias
+	// 2. Project-aware resolution (v1 packages)
+	if e.Project != nil {
+		if resolved, err := e.Project.ResolveRunbookRef(alias); err == nil {
+			return resolved
+		}
+	}
+	// 3. Fallback: treat as direct path
+	return normalizeRunbookPathRef(alias)
 }
 
 // executeInvokeStep runs a child runbook inline as a sub-procedure.
@@ -479,10 +498,11 @@ func (e *Engine) executeInvokeStep(ctx context.Context, step schema.Step, result
 	// Resolve template vars in the file path
 	resolvedFile = e.ResolveTemplatePublic(resolvedFile)
 
-	// Resolve relative to the parent runbook's directory
+	// Resolve relative to the parent runbook's directory (if not already absolute from project resolution)
 	if !filepath.IsAbs(resolvedFile) && e.RunbookPath != "" {
 		resolvedFile = filepath.Join(filepath.Dir(e.RunbookPath), resolvedFile)
 	}
+	resolvedFile = normalizeRunbookPathRef(resolvedFile)
 
 	fmt.Fprintf(os.Stderr, "  → Invoking child runbook: %s\n", resolvedFile)
 
@@ -527,12 +547,16 @@ func (e *Engine) executeInvokeStep(ctx context.Context, step schema.Step, result
 	childEngine.xtsProvider = e.xtsProvider
 	childEngine.XTSScenario = e.XTSScenario
 
+	// Inherit project context for package resolution
+	childEngine.Project = e.Project
+
 	// Load child tool definitions declared in tools: [name, ...]
 	if len(childRB.Tools) > 0 {
 		tm := tools.NewManager(e.Executor, childEngine.Redact)
 		baseDir := filepath.Dir(resolvedFile)
 		for _, name := range childRB.Tools {
-			if err := tm.Load(name, filepath.Join("tools", name+".tool.yaml"), baseDir); err != nil {
+			resolved := schema.ResolveToolPathCompat(e.Project, childRB, name, baseDir)
+			if err := tm.Load(name, resolved, ""); err != nil {
 				fmt.Fprintf(os.Stderr, "runtime: warning: failed to load child tool %q: %v\n", name, err)
 			}
 		}
@@ -600,6 +624,25 @@ func (e *Engine) executeInvokeStep(ctx context.Context, step schema.Step, result
 	result.Status = "passed"
 	result.Actor = "engine"
 	fmt.Fprintf(os.Stderr, "  ✓ Child runbook completed: outcome=%s\n", childOutcome)
+}
+
+func normalizeRunbookPathRef(path string) string {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return p
+	}
+	lower := strings.ToLower(p)
+	if strings.HasSuffix(lower, ".runbook.yaml") || strings.HasSuffix(lower, ".runbook.yml") {
+		return p
+	}
+	if strings.HasSuffix(lower, ".runbook") {
+		return p + ".yaml"
+	}
+	ext := strings.ToLower(filepath.Ext(p))
+	if ext == ".yaml" || ext == ".yml" {
+		return p
+	}
+	return p + ".runbook.yaml"
 }
 
 // executeStep runs a single step based on its type.

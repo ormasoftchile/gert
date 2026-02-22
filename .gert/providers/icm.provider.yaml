@@ -1,0 +1,20 @@
+apiVersion: provider/v0
+
+meta:
+  name: icm
+  description: Microsoft ICM incident input provider
+  binary: gert-icm-provider
+
+transport:
+  mode: jsonrpc
+  startup:
+    ready_signal: "ready"
+    timeout: 10s
+    shutdown_method: "shutdown"
+
+capabilities:
+  resolve_inputs:
+    prefixes:
+      - "icm."
+    context_fields:
+      - icmId

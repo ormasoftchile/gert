@@ -1,0 +1,36 @@
+# Scenario manifest: login-failure-747870160
+# Captured: 2026-02-14
+# ICM: https://portal.microsofticm.com/imp/v5/incidents/details/747870160
+
+icm_id: 747870160
+title: "[SLO: SQLDB_HS_Gen5_2] [Sev-2 LoginFailureCause: IsReplicaInBuild] [ProdEus1a/AIMS://AZURE SQL DB/Availability] Sterling CRGW0001: Login success rate is below 99%"
+captured_at: "2026-02-14T15:10:00Z"
+tsg_link: "https://eng.ms/docs/cloud-ai-platform/azure-data/azure-data-azure-databases/sql-engineering/sql-connectivity/sql-db-connectivity/connection/login-success-rate-below-target"
+
+# Files in this scenario
+files:
+  icm_details: icm-details.json       # get_incident_details_by_id output (not yet saved — details inline below)
+  icm_context: icm-context.json       # get_incident_context output (full QnA, timeline, discussion)
+  icm_location: icm-location.json     # get_incident_location output (region classification)
+  inputs: inputs.yaml                 # resolved input values from ICM binding
+
+# ICM custom fields available for input binding
+custom_fields:
+  ServerName: sobeys-sql01
+  DatabaseName: AlarmDB
+  AppName: d32e1b0ec027
+  PrimaryTenantRing: tr48699.eastus1-a.worker.database.windows.net
+  PrimaryNodeName: _DB_48
+  SLO: SQLDB_HS_Gen5_2
+
+# Steps (to be populated when runbook is executed against this scenario)
+# Each step response file goes in steps/ subdirectory
+steps: []
+
+# Notes
+# - This incident has ALL key custom fields populated (ServerName, DatabaseName, AppName, TenantRing, NodeName, SLO)
+# - Routing: AIMS://AZURE SQL DB/Availability (availability team)
+# - Monitor: LoginFailure with cause IsReplicaInBuild
+# - The TSG (login-success-rate-below-target) references standard triage workflow
+# - Sterling CRGW0001 cluster in East US
+# - Mitigated as transient ("no more failed logins")

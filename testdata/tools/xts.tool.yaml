@@ -1,0 +1,110 @@
+apiVersion: tool/v0
+
+meta:
+  name: xts
+  version: "1.0"
+  description: XTS query execution for Azure Service Fabric
+  binary: C:\\Users\\cristiano\\bin\\xts-cli.cmd
+
+transport:
+  mode: jsonrpc
+  startup:
+    argv: ["server"]
+    timeout: 10s
+    shutdown_method: "shutdown"
+
+actions:
+  query:
+    description: Run an XTS query
+    method: xts/query
+    args:
+      cluster:
+        type: string
+        required: true
+        description: Target cluster
+      query_type:
+        type: string
+        required: true
+        enum: [wql, sql, kusto, cms, mds]
+      query:
+        type: string
+        required: true
+    capture:
+      result:
+        from: result.data
+        format: json
+      row_count:
+        from: result.rowCount
+        format: text
+      first_app_type:
+        from: result.data[0].AppTypeName
+        format: text
+      first_error:
+        from: result.data[0].error
+        format: text
+      first_state:
+        from: result.data[0].state
+        format: text
+      failure_count:
+        from: result.data[0].FailureCount
+        format: text
+      gateway_nodes:
+        from: result.data[0].GatewayNodesWithFailure
+        format: text
+      restore_request_id:
+        from: result.data[0].restore_request_id
+        format: text
+    governance:
+      read_only: true
+
+  invoke-command:
+    description: Run a remote command on a node (destructive)
+    method: xts/invoke
+    args:
+      cluster:
+        type: string
+        required: true
+      node:
+        type: string
+        required: true
+      command:
+        type: string
+        required: true
+        redact: true
+    governance:
+      read_only: false
+      requires_approval: true
+      approval_min: 1
+
+  view:
+    description: Run an XTS view
+    method: xts/view
+    args:
+      cluster:
+        type: string
+        required: true
+        description: Target cluster
+      file:
+        type: string
+        required: true
+      params:
+        type: string
+        required: false
+    capture:
+      app_name:
+        from: result.data[0].app_name
+        format: text
+      database_name:
+        from: result.data[0].database_name
+        format: text
+      logical_server_name:
+        from: result.data[0].logical_server_name
+        format: text
+      node_name:
+        from: result.data[0].node_name
+        format: text
+      tenant_ring_name:
+        from: result.data[0].tenant_ring_name
+        format: text
+    governance:
+      read_only: true

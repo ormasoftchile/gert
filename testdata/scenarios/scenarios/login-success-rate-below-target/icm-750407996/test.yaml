@@ -1,0 +1,10 @@
+# Auto-generated from ICM 750407996
+expected_outcome: resolved
+expected_captures:
+  failure_row_count: ">0"
+  login_failure_cause: "LoginErrorsFound_40613_127"
+must_reach:
+  - query_login_failures
+  - query_failure_breakdown
+  - route_mitigation
+description: "ICM 750407996  LoginErrorsFound_40613_127 from ProdEus1a (active today)"

@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "rowCount": 1,
+  "columns": [
+    "is_success",
+    "Count"
+  ],
+  "data": [
+    {
+      "is_success": 1,
+      "Count": 4077
+    }
+  ],
+  "metadata": {
+    "executedAt": "2026-02-14T16:37:44.3402091Z"
+  }
+}

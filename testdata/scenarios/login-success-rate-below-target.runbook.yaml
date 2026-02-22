@@ -1,0 +1,539 @@
+apiVersion: runbook/v0
+meta:
+    name: login-success-rate-below-target
+    kind: mitigation
+    description: Diagnose and mitigate incidents where a database login success rate drops below target by triaging telemetry, determining failure cause, and routing to the appropriate mitigation TSG or escalation.
+    source:
+        file: C:\One\TSG-SQL-DB-Connectivity\TSG\connection\login-success-rate-below-target.md
+        compiled_at: "2026-02-16T00:00:00Z"
+        model: gpt-5.2-chat
+        source_hash: 503d261bb0039b8639d17cf287d076ca46698386e15a3084f52fdeb0e50777e4
+    inputs:
+        server_name:
+            from: icm.customFields.ServerName
+            description: Logical SQL server name from the incident.
+        database_name:
+            from: icm.customFields.DatabaseName
+            description: Database name from the incident.
+        environment:
+            from: icm.occuringLocation.instance
+            description: XTS environment from incident location.
+        login_failure_cause:
+            from: icm.title
+            pattern: 'LoginFailureCause:\s*(\w+)'
+            description: Login failure cause extracted from incident title (e.g. IsUnplacedReplica, HasDumps, HasIoError).
+    xts:
+        environment: '{{ .environment }}'
+tree:
+    # ── Step 1: Query Kusto for login failures ──────────────────────────
+    - step:
+        id: query_login_failures
+    type: xts
+        title: Query login failures via Kusto
+    xts:
+      mode: query
+      query_type: kusto
+      query: |
+        let _ServerName = "{{ .server_name }}";
+        let _DatabaseName = "{{ .database_name }}";
+        MonLogin
+        | where TIMESTAMP > ago(4h)
+        | where event == "process_login_finish"
+        | where logical_server_name == _ServerName or LogicalServerName == _ServerName
+        | where database_name == _DatabaseName and is_user_error == 0
+        | summarize Count = count() by bin(TIMESTAMP, 1m), strcat(iif(is_success, "Login Successful", "Login Failed"), "-", AppTypeName)
+        | render timechart
+        capture:
+            failure_row_count: row_count
+    branches:
+    - condition: '{{ eq .failure_row_count "0" }}'
+      label: No login failures detected
+      steps:
+      - step:
+        id: mitigate_as_transient
+        type: manual
+        title: Mitigate as transient (expired health property)
+        instructions: |
+          No login failures were found in the last 4 hours.
+          Treat this as an expired/transient health property and mitigate the incident.
+        outcomes:
+          - state: no_action
+            recommendation: |
+              No login failures found in the last 4 hours and Health Property is likely expired. Mitigate the incident as transient.
+        # ── Step 2: Failures present — query failure breakdown ──────────
+        - condition: '{{ ne .failure_row_count "0" }}'
+          label: Login failures detected
+          steps:
+            - step:
+                id: query_failure_breakdown
+        type: xts
+                title: Query failure breakdown by AppTypeName
+        xts:
+          mode: query
+          query_type: kusto
+          query: |
+            let _ServerName = "{{ .server_name }}";
+            let _DatabaseName = "{{ .database_name }}";
+            MonLogin
+            | where TIMESTAMP > ago(4h)
+            | where event == "process_login_finish"
+            | where logical_server_name == _ServerName or LogicalServerName == _ServerName
+            | where database_name == _DatabaseName and is_user_error == 0 and not(is_success)
+            | summarize FailureCount = count() by AppTypeName, error, state
+            | order by FailureCount desc
+                capture:
+          top_app_type: "$.data[0].AppTypeName"
+          top_error: "$.data[0].error"
+          top_state: "$.data[0].state"
+
+            # ── Step 3: Scope check — transfer if not SQL DB ────────────
+            - step:
+                id: check_application_scope
+                type: manual
+                title: Check application scope and transfer if needed
+                instructions: |
+                    Top failing application: **{{ .top_app_type }}** (error {{ .top_error }}, state {{ .top_state }})
+
+                    This alert applies to Azure SQL DB Gateway queue only.
+                    - If application is `fabric:/Host.MySQL/Host.MySQL`, transfer to **Azure OSS Databases/Connectivity**.
+                    - If application is `Gateway.PDC` or `Worker.CL`, transfer to **SQL Managed Instance (Cloud Lifter)** or follow TSGCL0137.
+
+            # ── Step 4: Route to mitigation TSG ─────────────────────────
+            - step:
+                id: route_mitigation
+                type: manual
+                title: Route to mitigation TSG based on login failure cause
+                instructions: |
+                    Login failure cause: **{{ .login_failure_cause }}**
+
+                    Select the matching TSG below. If none match, escalate.
+              branches:
+                - condition: '{{ eq .login_failure_cause "HasDumps" }}'
+                  label: HasDumps
+                  steps:
+                    - step:
+                        id: tsg_has_dumps
+                        type: manual
+                        title: Follow HasDumps TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/has-dumps.md
+                        instructions: Follow the [HasDumps](./availability-manager/has-dumps.md) TSG.
+                - condition: '{{ eq .login_failure_cause "HasHighLatencyLoginsTopWaitStat" }}'
+                  label: HasHighLatencyLoginsTopWaitStat
+                  steps:
+                    - step:
+                        id: tsg_has_high_latency_logins
+                        type: manual
+                        title: Follow HasHighLatencyLoginsTopWaitStat TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/has-high-latency-logins-top-wait-stat.md
+                        instructions: Follow the [HasHighLatencyLoginsTopWaitStat](./availability-manager/has-high-latency-logins-top-wait-stat.md) TSG.
+                - condition: '{{ eq .login_failure_cause "HasHighLatencyLoginsTopWaitStat_HADR_LOGPR" }}'
+                  label: HasHighLatencyLoginsTopWaitStat_HADR_LOGPR
+                  steps:
+                    - step:
+                        id: tsg_has_high_latency_hadr
+                        type: manual
+                        title: Follow HasHighLatencyLoginsTopWaitStat_HADR_LOGPR TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/has-high-latency-logins-top-wait-stat-hadr-logpr.md
+                        instructions: Follow the [HasHighLatencyLoginsTopWaitStat_HADR_LOGPR](./availability-manager/has-high-latency-logins-top-wait-stat-hadr-logpr.md) TSG.
+                - condition: '{{ eq .login_failure_cause "HasIoError" }}'
+                  label: HasIoError
+                  steps:
+                    - step:
+                        id: tsg_has_io_error
+                        type: manual
+                        title: Follow HasIoError TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/has-io-errors.md
+                        instructions: Follow the [HasIoError](./availability-manager/has-io-errors.md) TSG.
+                - condition: '{{ eq .login_failure_cause "HasTDEErrors" }}'
+                  label: HasTDEErrors
+                  steps:
+                    - step:
+                        id: tsg_has_tde_errors
+                        type: manual
+                        title: Follow HasTDEErrors TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/has-tde-errors.md
+                        instructions: Follow the [HasTDEErrors](./availability-manager/has-tde-errors.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsActivateDatabaseFailure" }}'
+                  label: IsActivateDatabaseFailure
+                  steps:
+                    - step:
+                        id: tsg_is_activate_db_failure
+                        type: manual
+                        title: Follow IsActivateDatabaseFailure TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-activate-database-failure.md
+                        instructions: Follow the [IsActivateDatabaseFailure](./availability-manager/is-activate-database-failure.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsFedAuthLogin" }}'
+                  label: IsFedAuthLogin
+                  steps:
+                    - step:
+                        id: tsg_is_fed_auth_login
+                        type: manual
+                        title: Follow IsFedAuthLogin TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-fed-auth-login.md
+                        instructions: Follow the [IsFedAuthLogin](./availability-manager/is-fed-auth-login.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsGatewayRoutingToWrongNode" }}'
+                  label: IsGatewayRoutingToWrongNode
+                  steps:
+                    - step:
+                        id: tsg_is_gw_routing_wrong_node
+                        type: manual
+                        title: Follow IsGatewayRoutingToWrongNode TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-login-landing-on-wrong-node.md
+                        instructions: Follow the [IsGatewayRoutingToWrongNode](./availability-manager/is-login-landing-on-wrong-node.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsGWProxyBusy" }}'
+                  label: IsGWProxyBusy
+                  steps:
+                    - step:
+                        id: tsg_is_gw_proxy_busy
+                        type: manual
+                        title: Follow IsGWProxyBusy TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-gw-proxy-busy.md
+                        instructions: Follow the [IsGWProxyBusy](./availability-manager/is-gw-proxy-busy.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsGWProxyThrottledTCPTimeoutToBackend" }}'
+                  label: IsGWProxyThrottledTCPTimeoutToBackend
+                  steps:
+                    - step:
+                        id: tsg_is_gw_proxy_throttled
+                        type: manual
+                        title: Follow IsGWProxyThrottledTCPTimeoutToBackend TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-gw-proxy-throttled-tcp-timeout-to-backend.md
+                        instructions: Follow the [IsGWProxyThrottledTCPTimeoutToBackend](./availability-manager/is-gw-proxy-throttled-tcp-timeout-to-backend.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsLoginDispatcherHavingHighStalls" }}'
+                  label: IsLoginDispatcherHavingHighStalls
+                  steps:
+                    - step:
+                        id: tsg_is_login_dispatcher_stalls
+                        type: manual
+                        title: Follow IsLoginDispatcherHavingHighStalls TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-login-dispatcher-having-high-stalls.md
+                        instructions: Follow the [IsLoginDispatcherHavingHighStalls](./availability-manager/is-login-dispatcher-having-high-stalls.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsLoginHighCPUDueToKernelForSpecialSLOs" }}'
+                  label: IsLoginHighCPUDueToKernelForSpecialSLOs
+                  steps:
+                    - step:
+                        id: tsg_is_login_high_cpu_kernel
+                        type: manual
+                        title: Follow IsLoginHighCPUDueToKernelForSpecialSLOs TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-login-high-cpu-due-to-kernel-for-special-slos.md
+                        instructions: Follow the [IsLoginHighCPUDueToKernelForSpecialSLOs](./availability-manager/is-login-high-cpu-due-to-kernel-for-special-slos.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsLoginLandingOnWrongNode" }}'
+                  label: IsLoginLandingOnWrongNode
+                  steps:
+                    - step:
+                        id: tsg_is_login_wrong_node
+                        type: manual
+                        title: Follow IsLoginLandingOnWrongNode TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-login-landing-on-wrong-node.md
+                        instructions: Follow the [IsLoginLandingOnWrongNode](./availability-manager/is-login-landing-on-wrong-node.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsMasterBusyDueToBadLogins" }}'
+                  label: IsMasterBusyDueToBadLogins
+                  steps:
+                    - step:
+                        id: tsg_is_master_busy_bad_logins
+                        type: manual
+                        title: Follow IsMasterBusyDueToBadLogins TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-master-busy-due-to-bad-logins.md
+                        instructions: Follow the [IsMasterBusyDueToBadLogins](./availability-manager/is-master-busy-due-to-bad-logins.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsMonLoginDelaySuspected" }}'
+                  label: IsMonLoginDelaySuspected
+                  steps:
+                    - step:
+                        id: tsg_is_mon_login_delay
+                        type: manual
+                        title: Follow IsMonLoginDelaySuspected TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-mon-login-delay-suspected.md
+                        instructions: Follow the [IsMonLoginDelaySuspected](./availability-manager/is-mon-login-delay-suspected.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsNodeMissingTelemetry" }}'
+                  label: IsNodeMissingTelemetry
+                  steps:
+                    - step:
+                        id: tsg_is_node_missing_telemetry
+                        type: manual
+                        title: Follow IsNodeMissingTelemetry TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-node-missing-telemetry.md
+                        instructions: Follow the [IsNodeMissingTelemetry](./availability-manager/is-node-missing-telemetry.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsPartitionInReconfigurationMostly" }}'
+                  label: IsPartitionInReconfigurationMostly
+                  steps:
+                    - step:
+                        id: tsg_is_partition_reconfig
+                        type: manual
+                        title: Follow IsPartitionInReconfigurationMostly TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-partition-in-reconfiguration-mostly.md
+                        instructions: Follow the [IsPartitionInReconfigurationMostly](./availability-manager/is-partition-in-reconfiguration-mostly.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsPeerCertificateInvalid" }}'
+                  label: IsPeerCertificateInvalid
+                  steps:
+                    - step:
+                        id: tsg_is_peer_cert_invalid
+                        type: manual
+                        title: Follow IsPeerCertificateInvalid TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-peer-certificate-invalid.md
+                        instructions: Follow the [IsPeerCertificateInvalid](./availability-manager/is-peer-certificate-invalid.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsRgManagerNotRunning" }}'
+                  label: IsRgManagerNotRunning
+                  steps:
+                    - step:
+                        id: tsg_is_rg_manager_not_running
+                        type: manual
+                        title: Follow IsRgManagerNotRunning TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-rg-manager-not-running.md
+                        instructions: Follow the [IsRgManagerNotRunning](./availability-manager/is-rg-manager-not-running.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsSessionLimit" }}'
+                  label: IsSessionLimit
+                  steps:
+                    - step:
+                        id: tsg_is_session_limit
+                        type: manual
+                        title: Follow IsSessionLimit TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-session-limit.md
+                        instructions: Follow the [IsSessionLimit](./availability-manager/is-session-limit.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsSniReadTimeout" }}'
+                  label: IsSniReadTimeout
+                  steps:
+                    - step:
+                        id: tsg_is_sni_read_timeout
+                        type: manual
+                        title: Follow IsSniReadTimeout TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-sni-read-timeout.md
+                        instructions: Follow the [IsSniReadTimeout](./availability-manager/is-sni-read-timeout.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsSniReadTimeoutDuringXdbhostDuplication" }}'
+                  label: IsSniReadTimeoutDuringXdbhostDuplication
+                  steps:
+                    - step:
+                        id: tsg_is_sni_timeout_xdbhost
+                        type: manual
+                        title: Follow IsSniReadTimeoutDuringXdbhostDuplication TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-sni-read-timeout-during-xdbhost-duplication.md
+                        instructions: Follow the [IsSniReadTimeoutDuringXdbhostDuplication](./availability-manager/is-sni-read-timeout-during-xdbhost-duplication.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsSqlPartitionInErrorStateFromWinFabHealth" }}'
+                  label: IsSqlPartitionInErrorStateFromWinFabHealth
+                  steps:
+                    - step:
+                        id: tsg_is_sql_partition_error
+                        type: manual
+                        title: Follow IsSqlPartitionInErrorStateFromWinFabHealth TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-sql-partition-in-error-state-from-win-fab-health.md
+                        instructions: Follow the [IsSqlPartitionInErrorStateFromWinFabHealth](./availability-manager/is-sql-partition-in-error-state-from-win-fab-health.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsSuspendDueTo9019" }}'
+                  label: IsSuspendDueTo9019
+                  steps:
+                    - step:
+                        id: tsg_is_suspend_9019
+                        type: manual
+                        title: Follow IsSuspendDueTo9019 TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-suspend-due-to-9019.md
+                        instructions: Follow the [IsSuspendDueTo9019](./availability-manager/is-suspend-due-to-9019.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsTopWaitStatKnown" }}'
+                  label: IsTopWaitStatKnown
+                  steps:
+                    - step:
+                        id: tsg_is_top_wait_stat
+                        type: manual
+                        title: Follow IsTopWaitStatKnown TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-top-wait-stat-known-x.md
+                        instructions: Follow the [IsTopWaitStatKnown](./availability-manager/is-top-wait-stat-known-x.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsUnplacedReplica" }}'
+                  label: IsUnplacedReplica
+                  steps:
+                    - step:
+                        id: tsg_is_unplaced_replica
+                        type: manual
+                        title: Follow IsPartitionInReconfigurationMostly TSG (covers unplaced replicas)
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-partition-in-reconfiguration-mostly.md
+                        instructions: |
+                            IsUnplacedReplica maps to the partition reconfiguration flow.
+                            Follow the [IsPartitionInReconfigurationMostly](./availability-manager/is-partition-in-reconfiguration-mostly.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsReplicaInBuild" }}'
+                  label: IsReplicaInBuild
+                  steps:
+                    - step:
+                        id: tsg_is_replica_in_build
+                        type: manual
+                        title: Follow IsPartitionInReconfigurationMostly TSG (covers replica-in-build)
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-partition-in-reconfiguration-mostly.md
+                        instructions: |
+                            IsReplicaInBuild maps to the partition reconfiguration flow.
+                            Follow the [IsPartitionInReconfigurationMostly](./availability-manager/is-partition-in-reconfiguration-mostly.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsWinfabNamingServiceIssueOnTR" }}'
+                  label: IsWinfabNamingServiceIssueOnTR
+                  steps:
+                    - step:
+                        id: tsg_is_winfab_naming
+                        type: manual
+                        title: Follow IsWinfabNamingServiceIssueOnTR TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-win-fab-naming-service-issue-on-tr.md
+                        instructions: Follow the [IsWinfabNamingServiceIssueOnTR](./availability-manager/is-win-fab-naming-service-issue-on-tr.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsXdbhostUnhealthy" }}'
+                  label: IsXdbhostUnhealthy
+                  steps:
+                    - step:
+                        id: tsg_is_xdbhost_unhealthy
+                        type: manual
+                        title: Follow IsXdbhostUnhealthy TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-xdbhost-unhealthy.md
+                        instructions: Follow the [IsXdbhostUnhealthy](./availability-manager/is-xdbhost-unhealthy.md) TSG.
+                - condition: '{{ eq .login_failure_cause "LoginDiffsFound" }}'
+                  label: LoginDiffsFound
+                  steps:
+                    - step:
+                        id: tsg_login_diffs_found
+                        type: manual
+                        title: Follow LoginDiffsFound TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/login-diffs-found.md
+                        instructions: Follow the [LoginDiffsFound](./availability-manager/login-diffs-found.md) TSG.
+                - condition: '{{ eq .login_failure_cause "LoginErrorsFound_40613_84" }}'
+                  label: LoginErrorsFound_40613_84
+                  steps:
+                    - step:
+                        id: tsg_login_errors_40613_84
+                        type: manual
+                        title: Follow LoginErrorsFound_40613_84 TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: login-errors/error-40613-state-84.md
+                        instructions: Follow the [LoginErrorsFound_40613_84](./login-errors/error-40613-state-84.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsHighCpu" }}'
+                  label: IsHighCpu
+                  steps:
+                    - step:
+                        id: tsg_is_high_cpu
+                        type: manual
+                        title: Follow IsHighCpu TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-high-cpu.md
+                        instructions: Follow the [IsHighCpu](./availability-manager/is-high-cpu.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsOutOfMemory" }}'
+                  label: IsOutOfMemory
+                  steps:
+                    - step:
+                        id: tsg_is_out_of_memory
+                        type: manual
+                        title: Follow IsOutOfMemory TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-out-of-memory.md
+                        instructions: Follow the [IsOutOfMemory](./availability-manager/is-out-of-memory.md) TSG.
+                - condition: '{{ eq .login_failure_cause "IsPotentialPerformanceRelatedHang" }}'
+                  label: IsPotentialPerformanceRelatedHang
+                  steps:
+                    - step:
+                        id: tsg_is_perf_hang
+                        type: manual
+                        title: Follow IsPotentialPerformanceRelatedHang TSG
+                        outcomes:
+                            - state: resolved
+                              next_runbook:
+                                file: availability-manager/is-potential-performance-related-hang.md
+                        instructions: Follow the [IsPotentialPerformanceRelatedHang](./availability-manager/is-potential-performance-related-hang.md) TSG.
+            # ── Fallback: escalate if no branch matches ─────────────────
+            - step:
+                id: escalate_unknown_cause
+                type: manual
+                title: Escalate — unknown or unhandled login failure cause
+                when: '{{ not (has .login_failure_cause (list "HasDumps" "HasHighLatencyLoginsTopWaitStat" "HasHighLatencyLoginsTopWaitStat_HADR_LOGPR" "HasIoError" "HasTDEErrors" "IsActivateDatabaseFailure" "IsFedAuthLogin" "IsGatewayRoutingToWrongNode" "IsGWProxyBusy" "IsGWProxyThrottledTCPTimeoutToBackend" "IsLoginDispatcherHavingHighStalls" "IsLoginHighCPUDueToKernelForSpecialSLOs" "IsLoginLandingOnWrongNode" "IsMasterBusyDueToBadLogins" "IsMonLoginDelaySuspected" "IsNodeMissingTelemetry" "IsPartitionInReconfigurationMostly" "IsPeerCertificateInvalid" "IsRgManagerNotRunning" "IsSessionLimit" "IsSniReadTimeout" "IsSniReadTimeoutDuringXdbhostDuplication" "IsSqlPartitionInErrorStateFromWinFabHealth" "IsSuspendDueTo9019" "IsTopWaitStatKnown" "IsUnplacedReplica" "IsReplicaInBuild" "IsWinfabNamingServiceIssueOnTR" "IsXdbhostUnhealthy" "LoginDiffsFound" "LoginErrorsFound_40613_84" "IsHighCpu" "IsOutOfMemory" "IsPotentialPerformanceRelatedHang")) }}'
+                outcomes:
+                    - state: escalated
+                      recommendation: |
+                          Login failure cause "{{ .login_failure_cause }}" does not match any known TSG.
+                          Escalate to Azure SQL DB/Expert: Gateway escalations only from people in the Gateway queue.
+                          For low priority: sqldb_connectivity@microsoft.com
+                instructions: |
+                    Login failure cause **{{ .login_failure_cause }}** has no matching automated TSG.
+
+                    Escalate to `Azure SQL DB/Expert: Gateway escalations only from people in the Gateway queue`.
+                    For low priority escalations use [sqldb_connectivity@microsoft.com](mailto:sqldb_connectivity@microsoft.com).

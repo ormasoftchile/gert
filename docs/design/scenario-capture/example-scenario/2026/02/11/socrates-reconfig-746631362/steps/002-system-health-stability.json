@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "rowCount": 1,
+  "columns": [
+    "NodeName",
+    "process_id",
+    "min_originalEventTimestamp",
+    "max_originalEventTimestamp"
+  ],
+  "data": [
+    {
+      "NodeName": "_DB_55",
+      "process_id": 123088,
+      "min_originalEventTimestamp": "2026-02-14T15:37:46.5807452Z",
+      "max_originalEventTimestamp": "2026-02-14T16:28:44.0407484Z"
+    }
+  ],
+  "metadata": {
+    "executedAt": "2026-02-14T16:37:06.0629349Z"
+  }
+}

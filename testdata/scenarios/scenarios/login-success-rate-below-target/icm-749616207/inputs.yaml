@@ -1,0 +1,7 @@
+# ICM 749616207 — LoginFailureCause: LoginErrorsFound_40613_10
+# State: MITIGATED | Severity: Sev-2
+# Region: ProdEus1a
+server_name: "sql-shared-prod-eastus-01"
+database_name: "BC_SFZ_PRO"
+environment: "ProdEus1a"
+login_failure_cause: "LoginErrorsFound_40613_10"

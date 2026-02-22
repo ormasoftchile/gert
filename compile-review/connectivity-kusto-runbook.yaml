@@ -1,0 +1,194 @@
+apiVersion: runbook/v0
+tools:
+    xts: ../testdata/tools/xts.tool.yaml
+meta:
+    name: connectivity-kusto-queries
+    kind: reference
+    description: Collection of Kusto queries for investigating SQL connectivity, login availability, performance, and gateway-related issues. Intended as a reference catalog rather than a linear incident workflow.
+    inputs:
+        logical_server_name:
+            from: prompt
+            description: Logical SQL server name to filter MonLogin.
+        database_name:
+            from: prompt
+            description: Database name to filter MonLogin.
+        appname:
+            from: prompt
+            description: Application name or fragment for instance filtering.
+        instance_name:
+            from: prompt
+            description: Instance name used in MonLogin filters.
+        input_ip:
+            from: prompt
+            description: IPv4 address to search in NetworksXml ranges.
+    xts:
+        environment: Prod
+steps:
+    - id: setup_kusto_environment
+      type: manual
+      title: Set up Kusto environment
+      instructions: |
+        Before running any queries, ensure your Kusto environment is installed and configured.
+        Follow the "Install Kusto" guidance and SQL onboarding documentation.
+        TIP: Filter MonLogin on server and database name instead of app name when possible.
+    - id: global_fanout_execute_for_prod_clusters
+      type: tool
+      title: Global fanout using _ExecuteForProdClusters
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: Prod
+          query_type: kusto
+          query: |
+            let SingleCluster = (clstr: string)
+            {
+            cluster(clstr).database("sqlazure1").MonLogin
+            | where TIMESTAMP > ago(2h)
+            | where event == "process_login_finish"
+            | where RegionName != ""
+            | summarize avg(is_success) by bin(TIMESTAMP, 1m), RegionName
+            };
+            _ExecuteForProdClusters
+            | render timechart;
+    - id: global_fanout_get_cross_cluster_data
+      type: tool
+      title: Global fanout using GetCrossClusterData
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: Prod
+          query_type: kusto
+          query: |
+            GetCrossClusterData(@'MonLogin')
+            | where TIMESTAMP > ago(2h)
+            | where event == "process_login_finish"
+            | where RegionName != ""
+            | summarize avg(is_success) by bin(TIMESTAMP, 1m), RegionName
+            | render timechart;
+    - id: cluster_login_rate
+      type: tool
+      title: Cluster login rate
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: Prod
+          query_type: kusto
+          query: |
+            MonLogin
+            | where event == "process_login_finish"
+            | where originalEventTimestamp > ago(3h)
+            | summarize count() by ClusterName, bin(originalEventTimestamp, 10m)
+            | render timechart;
+    - id: ring_login_traffic_birds_eye
+      type: tool
+      title: Ring login traffic characteristics
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: Prod
+          query_type: kusto
+          query: |
+            MonLogin
+            | where ClusterName contains "cr1" and ClusterName contains "sqltest"
+            | where originalEventTimestamp > ago(2d)
+            | summarize
+              system_error = countif(is_success == 0 and is_user_error == 0 and event == "process_login_finish"),
+              success = count(is_success == 1),
+              total = count(),
+              idle_accepts = countif(event == "connection_accept"),
+              login_finish = countif(event == "process_login_finish" and (result == "e_crContinue" or result == "e_crContinueSameState")),
+              disconnects = countif(event == "process_login_finish" and result == "e_crDisconnect")
+              by bin(originalEventTimestamp, 1m)
+            | render timechart;
+    - id: get_login_traces_by_server_db_app
+      type: tool
+      title: Get all login traces for server, database, or app
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: Prod
+          query_type: kusto
+          query: |
+            MonLogin
+            | where ( logical_server_name == "{{ .logical_server_name }}" and database_name like "{{ .database_name }}")
+              or instance_name contains "{{ .appname }}"
+            | where event == "process_login_finish"
+            | project originalEventTimestamp, NodeName, package, AppName, event, error, ['state'],
+                     is_success, is_user_error, total_time_ms, lookup_error_code, lookup_state,
+                     fabric_node_name, conn_dup_result, message;
+    - id: login_errors_and_timeouts_by_db
+      type: tool
+      title: Login errors and potential timeouts for a database
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: Prod
+          query_type: kusto
+          query: |
+            let servername = "{{ .logical_server_name }}";
+            let databasename = "{{ .database_name }}";
+            let instancename = "{{ .instance_name }}";
+            MonLogin
+            | where originalEventTimestamp > ago(2d)
+            | where (logical_server_name == servername and database_name =~ databasename)
+              or instance_name contains instancename
+            | where event == "process_login_finish"
+            | where (is_success == false and is_user_error == false) or total_time_ms > 14000
+            | project originalEventTimestamp, NodeName, package, AppName, event, error, ['state'],
+                     is_success, is_user_error, total_time_ms, lookup_error_code, lookup_state,
+                     fabric_node_name, conn_dup_result, message;
+    - id: networksxml_whitelist_ip
+      type: tool
+      title: Networks XML entries whitelisting an IP address
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: Prod
+          query_type: kusto
+          query: |
+            let input_ip = "{{ .input_ip }}";
+            MonNetworksXml
+            | where event == "ip_range_cache"
+            | extend input_ip_split = split(input_ip, ".")
+            | extend input_ip_number = tolong(input_ip_split[0]*pow(256,3)
+                + input_ip_split[1]*pow(256,2)
+                + input_ip_split[2]*256
+                + input_ip_split[3])
+            | where originalEventTimestamp > ago(1d)
+            | where integer_start_ip <= input_ip_number and input_ip_number <= integer_end_ip
+            | summarize whitelisted_from = min(originalEventTimestamp),
+                        whitelisted_until = max(originalEventTimestamp),
+                        count()
+              by NodeName, ClusterName, network, start_ip, end_ip;
+    - id: proxy_failures_by_target_ring
+      type: tool
+      title: Proxy failures by target ring
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: Prod
+          query_type: kusto
+          query: |
+            MonLogin
+            | where originalEventTimestamp >= ago(1d)
+            | extend TargetRing = toupper(extract("[a-f0-9]*.(tr\\d+).(.*)",1,instance_name))
+            | where package == "xdbgateway"
+            | where error == 40613 and state == 22
+            | where event contains "process_login_finish"
+            | summarize count() by TargetRing, bin(originalEventTimestamp, 1m)
+            | render timechart;
+    - id: escalation_and_ownership
+      type: manual
+      title: Escalation and ownership
+      instructions: |-
+        If queries indicate unresolved or systemic issues, escalate to the Gateway SRE team.
+        Contact: sqldb_connectivity@microsoft.com
+        Ownership: Gateway SREs.

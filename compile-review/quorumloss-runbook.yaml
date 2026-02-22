@@ -1,0 +1,198 @@
+apiVersion: runbook/v0
+tools:
+    xts: ../testdata/tools/xts.tool.yaml
+meta:
+    name: recover-from-quorum-loss-with-auxiliary-replica
+    kind: mitigation
+    description: Recover a database service from quorum loss using a healthy auxiliary replica, including safety checks, recovery initiation, and progress tracking.
+    inputs:
+        app_name:
+            from: prompt
+            description: Application name (AppName) for the UserDB
+        aux_replica_node_name:
+            from: prompt
+            description: Node name hosting the auxiliary replica
+        cluster_name:
+            from: icm.title
+            pattern: ([\w.-]+)
+            description: Fabric cluster name parsed from incident title
+        environment:
+            from: icm.occuringLocation.instance
+            description: XTS environment derived from incident location
+        fabric_service_uri:
+            from: prompt
+            description: Fabric service URI for the affected UserDB service
+        management_request_id:
+            from: prompt
+            description: Management operation request ID from Recover-FabricService output
+        partition_id:
+            from: prompt
+            description: Partition ID of the affected service
+        restore_request_id:
+            from: prompt
+            description: Restore request ID obtained from MonRestoreEvents
+    xts:
+        environment: '{{ .environment }}'
+steps:
+    - id: verify_prerequisites
+      type: manual
+      title: Verify prerequisites for Aux-based quorum loss recovery
+      instructions: |
+        Confirm **all** of the following before proceeding:
+        - Primary replica is NOT healthy. If it is healthy, use full replica recovery instead.
+        - Auxiliary replica is healthy.
+        - Understand why full replicas were unhealthy (e.g., OOM or log corruption error 3456).
+        - A full backup exists for the database.
+        - Auxiliary replica role is PRIMARY_AUXILIARY.
+        - Service Fabric marks the partition as InQuorumLoss.
+        Refresh the UserDB service and ensure it reports InQuorumLoss; otherwise CAS recovery will fail safety checks.
+      required_evidence:
+        - kind: checklist
+          name: prerequisites_checklist
+          items:
+            - Primary replica unhealthy
+            - Auxiliary replica healthy
+            - Failure reason understood
+            - Full backup exists
+            - Aux role is PRIMARY_AUXILIARY
+            - Partition marked InQuorumLoss
+    - id: initiate_recovery_from_aux
+      type: manual
+      title: Initiate recovery from auxiliary replica
+      instructions: |
+        **PRECAUTION:** Ensure the auxiliary replica is in PRIMARY_AUXILIARY role.
+
+        Run the following CAS command from the CAS commands window in database replicas.xts view:
+
+        `Get-FabricService -ServiceName <fabric_service_uri> -ServiceClusterName <cluster_name> | Recover-FabricService`
+
+        TODO: This is a high-risk, state-changing operation. Ensure expert review if uncertain.
+      required_evidence:
+        - kind: text
+          name: recovery_command_output
+          items: []
+    - id: signal_data_loss_if_blocked
+      type: manual
+      title: Signal data loss if recovery is waiting on HADR async operation
+      instructions: |
+        If the Aux replica shows an InProgress task waiting on HADR_AsyncOpOnDataLoss, signal data loss using:
+
+        `Get-FabricNode -NodeName <Aux_replica_node_name> -NodeClusterName <cluster_name> | Signal-DataLossEvent -AppName <appname> -PartitionId <partition_id>`
+
+        TODO: Destructive operation requiring judgment; confirm no safer alternative exists.
+      required_evidence:
+        - kind: text
+          name: data_loss_signal_confirmation
+          items: []
+    - id: track_restore_request_id
+      type: tool
+      title: Get latest restore request ID
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: '{{ .environment }}'
+          query_type: kusto
+          query: |
+            MonRestoreEvents
+            | where AppName == "{{ .app_name }}"
+            | where isnotempty(restore_request_id)
+            | order by originalEventTimestamp desc
+            | project restore_request_id
+            | take 1
+      capture:
+        restore_request_id: restore_request_id
+    - id: track_restore_progress
+      type: tool
+      title: Track restore database progress
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: '{{ .environment }}'
+          query_type: kusto
+          query: |
+            MonRestoreEvents
+            | where originalEventTimestamp > ago(24h)
+            | where restore_request_id == "{{ .restore_request_id }}"
+            | where isnotempty(restore_database_progress)
+            | project restore_database_progress
+    - id: track_restore_details
+      type: tool
+      title: Track restore event details
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: '{{ .environment }}'
+          query_type: kusto
+          query: |
+            MonRestoreEvents
+            | where originalEventTimestamp > ago(24h)
+            | where restore_request_id == "{{ .restore_request_id }}"
+            | where isnotempty(details)
+            | project details
+    - id: check_management_operation
+      type: tool
+      title: Check management service recovery operation status
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: '{{ .environment }}'
+          query_type: kusto
+          query: |
+            MonManagementOperations
+            | where operation_type contains "RecoverServicePartitions"
+            | where request_id =~ "{{ .management_request_id }}"
+            | project event
+    - id: check_seeding_failures
+      type: tool
+      title: Check for seeding or reverse catchup failures
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: '{{ .environment }}'
+          query_type: kusto
+          query: |
+            MonSQLSystemHealth
+            | where AppName == "{{ .app_name }}"
+            | where NodeName == "{{ .aux_replica_node_name }}"
+            | where originalEventTimestamp > ago(8h)
+            | where message contains "FAILED" or message contains "Seeding"
+            | project message
+    - id: cms_recovery_state
+      type: tool
+      title: Check CMS recovery workflow state
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: '{{ .environment }}'
+          query_type: cms
+          query: "select state,* \nfrom recover_service_partitions_requests \nwhere service_name='{{ .fabric_service_uri }}'\n"
+    - id: cms_fabric_service_state
+      type: tool
+      title: Check fabric service state during QL recovery
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: '{{ .environment }}'
+          query_type: cms
+          query: "select state,* \nfrom fabric_services \nwhere fabric_cluster_name='{{ .cluster_name }}'\n  and fabric_service_uri='{{ .fabric_service_uri }}'\n"
+    - id: assess_completion_or_escalate
+      type: manual
+      title: Assess completion or escalate
+      instructions: |
+        Recovery is complete when CMS workflow reaches `Completed` and fabric service state reaches `Ready`.
+        If seeding fails continuously or states do not progress, recovery from Aux is not possible.
+        Escalate to customer for point-in-time restore with potential data loss.
+      required_evidence:
+        - kind: checklist
+          name: completion_checks
+          items:
+            - CMS state Completed
+            - Fabric service state Ready
+            - Replica counts restored

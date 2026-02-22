@@ -1,0 +1,33 @@
+apiVersion: runbook/v0
+meta:
+  name: xts-activity-chain
+  description: Chain XTS activities to extract server and database info via sterling view.
+  vars:
+    server_name: ""
+  xts:
+    environment: ProdAuce1a
+    views_root: "C:\\users\\cristiano\\appdata\\local\\XtsSharedFiles\\xtsviews"
+steps:
+  - id: get_servers
+    type: xts
+    title: Get Sterling Servers
+    xts:
+      mode: activity
+      file: "sterling/sterling servers and databases.xts"
+      activity: "Servers for..."
+      params:
+        search_string: "{{ .server_name }}"
+      auto_select: true
+      sql_timeout: 10
+    capture:
+      tenant_ring_name: "$.data[0].tenant_ring_name"
+      node_name: "$.data[0].node_name"
+  - id: query_kusto
+    type: xts
+    title: Query Kusto for Recent Logins
+    xts:
+      mode: query
+      query_type: kusto
+      query: "MonLogin | where ClusterName contains '{{ .tenant_ring_name }}' | take 5 | project originalEventTimestamp, event, ClusterName, NodeName"
+    capture:
+      login_count: "row_count"

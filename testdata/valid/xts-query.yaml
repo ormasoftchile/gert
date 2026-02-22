@@ -1,0 +1,21 @@
+apiVersion: runbook/v0
+tools:
+  xts: ../tools/xts.tool.yaml
+meta:
+  name: xts-query-only
+  description: Run an ad-hoc Kusto query via XTS.
+  xts:
+    environment: ProdAuce1a
+steps:
+  - id: adhoc_kusto
+    type: tool
+    title: Ad-hoc Kusto Query
+    tool:
+      name: xts
+      action: query
+      args:
+        cluster: ProdAuce1a
+        query_type: kusto
+        query: "MonLogin | take 1 | project originalEventTimestamp, event"
+    capture:
+      output: stdout

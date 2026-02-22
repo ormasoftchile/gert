@@ -1,0 +1,36 @@
+# Scenario manifest: geodr-replication-lag-747007036
+# Captured: 2026-02-14
+# ICM: https://portal.microsofticm.com/imp/v5/incidents/details/747007036
+
+icm_id: 747007036
+title: "[SLO: P11] Database has more than 15 minutes of replication lag: Server: irt-ppdi-eastus-prod, Database: irt-ppdi (tr56909.eastus1-a -> tr56076.westeurope1-a)"
+captured_at: "2026-02-14T15:50:00Z"
+tsg_link: "https://eng.ms/cid/9c897fa2-1fc9-4e35-a0f8-94e4f9ce8bce/fid/88027e3e8669dcee1699740034d28a88d31ebe39246b36ff7f79f43e49a57839"
+tsg_name: GeoDR Replication Lag Investigation
+routing_id: "AIMS://AZURE SQL DB/GEODR"
+monitor_name: MDM_GeoDrForwarderReplicationLag_15min
+
+custom_fields:
+  ServerName: irt-ppdi-eastus-prod
+  DatabaseName: irt-ppdi
+  AppName: aed2ea4bdbf8
+  PrimaryTenantRing: tr56909.eastus1-a.worker.database.windows.net
+  PrimaryNodeName: _DB_11
+  SLO: P11
+  DevOpsSub-Category: SendFlowControl
+
+location:
+  region: East US
+  arm_region: eastus
+  cloud: Public
+
+mitigation: "Self-healed"
+
+notes:
+  - Premium tier (P11) database with GeoDR to West Europe
+  - Cross-region replication: tr56909.eastus1-a → tr56076.westeurope1-a
+  - Fabric URI in correlation: fabric:/Worker.ISO.Premium/aed2ea4bdbf8
+  - Recurring incident — same server/database (see similar: 746473653, 745938587, 746212863)
+  - Sub-category "SendFlowControl" indicates geo-replication send throttling
+  - Self-healed without manual intervention
+  - Discussion is minimal — DRI checked health, confirmed self-healed

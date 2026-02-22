@@ -149,6 +149,12 @@ var execCmd = &cobra.Command{
 func runExec(cmd *cobra.Command, args []string) error {
 	filePath := args[0]
 
+	// Discover project context (gert.yaml) for package resolution
+	proj, _ := schema.DiscoverProject(filePath)
+	if proj == nil {
+		proj = schema.FallbackProject(filepath.Dir(filePath))
+	}
+
 	// Validate first
 	rb, errs := schema.ValidateFile(filePath)
 	if hasValidationErrors(errs) {
@@ -313,13 +319,15 @@ func runExec(cmd *cobra.Command, args []string) error {
 	// Set metadata for run manifest
 	engine.RunbookPath = filePath
 	engine.ICMID = execICM
+	engine.Project = proj
 
 	// Load tool definitions if the runbook declares tools:
 	if len(rb.Tools) > 0 {
 		tm := tools.NewManager(executor, engine.Redact)
 		baseDir := filepath.Dir(filePath)
 		for _, name := range rb.Tools {
-			if err := tm.Load(name, filepath.Join("tools", name+".tool.yaml"), baseDir); err != nil {
+			resolved := schema.ResolveToolPathCompat(proj, rb, name, baseDir)
+			if err := tm.Load(name, resolved, ""); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: failed to load tool %q: %v\n", name, err)
 			}
 		}

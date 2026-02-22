@@ -1,0 +1,22 @@
+# Resolved inputs for scenario: socrates-reconfig-746631362
+
+# From ICM direct fields
+environment: ProdCus1a
+impact_start_time: "2026-02-11T23:24:17Z"
+severity: 2
+region: Central US
+
+# From ICM custom fields
+server_name: credit-accounting-service-sql-secondary-prd
+database_name: 429DCB66-0FCA-45F0-8193-6EBDA5DCB9F2
+app_name: c100441c59c7
+tenant_ring: tr21582.centralus1-a.worker.database.windows.net
+node_name: _DB_19
+
+# Parsed from title
+cluster_name: ProdCus1aTR16759
+logical_db_id: 429DCB66-0FCA-45F0-8193-6EBDA5DCB9F2
+fabric_uri: "fabric:/Worker.Vldb.Compute/e114342e7e6d"
+
+# From correlation ID
+correlation_id: "SocratesAppFrequentlyReconfigV2/credit-accounting-service-sql-secondary-prd/429DCB66-0FCA-45F0-8193-6EBDA5DCB9F2"

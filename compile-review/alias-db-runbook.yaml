@@ -1,0 +1,128 @@
+apiVersion: runbook/v0
+tools:
+  xts: ../testdata/tools/xts.tool.yaml
+meta:
+    name: alias-db-failure-alert
+    kind: mitigation
+    description: Diagnose and mitigate Gateway login failures caused by inability to connect to the SQL Alias database, using Kusto impact analysis and Alias DB health checks.
+    inputs:
+        alias_app_name:
+            from: prompt
+            description: Alias database AppName identified from the incident or XTS view.
+        cluster_name:
+            from: icm.title
+            pattern: (cr[^\s:]+)
+            description: Cluster name parsed from the incident title.
+        end_time:
+            from: prompt
+            description: End time for impact analysis window (UTC).
+        environment:
+            from: icm.occuringLocation.instance
+            description: XTS environment derived from the incident location.
+        start_time:
+            from: icm.impactStartTime
+            description: Incident impact start time (UTC).
+    xts:
+        environment: '{{ .environment }}'
+steps:
+    - id: assess_gateway_alias_failures
+      type: tool
+      title: Assess gateway failures connecting to Alias DB
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: '{{ .environment }}'
+          query_type: kusto
+          query: |
+              // Determine number of failures and gateway nodes impacted
+              MonRedirector
+              | where originalEventTimestamp > ago(30m)
+              | where event == "sql_alias_odbc_failure"
+              | where AppTypeName =~ 'gateway'
+              | where ClusterName =~ "{{ .cluster_name }}"
+              | summarize FailureCount = count(),
+                          FailureStartTime = min(originalEventTimestamp),
+                          FailureEndTime = max(originalEventTimestamp),
+                          GatewayNodesWithFailure = strcat_array(make_set(NodeName), ',')
+                by AppTypeName, ClusterName
+      capture:
+        failure_count: failure_count
+        gateway_nodes: gateway_nodes
+    - id: assess_impacted_logins
+      type: tool
+      title: Assess impacted login connections
+      tool:
+        name: xts
+        action: query
+        args:
+          cluster: '{{ .environment }}'
+          query_type: kusto
+          query: |
+              let cr = "{{ .cluster_name }}";
+              let st = datetime({{ .start_time }});
+              let et = datetime({{ .end_time }});
+              MonLogin
+              | where TIMESTAMP between (st .. et)
+              | where event == "process_login_finish"
+              | where ClusterName =~ cr
+              | where error == 40613 and state == 4
+              | summarize count(),
+                          make_set(NodeName),
+                          dcount(logical_server_name),
+                          make_set(lookup_error_code)
+                by package, error, state, bin(originalEventTimestamp, 3m)
+              | order by count_
+    - id: check_alias_db_replica_health
+      type: tool
+      title: Check Alias DB replica health in XTS
+      tool:
+        name: xts
+        action: view
+        args:
+          cluster: '{{ .environment }}'
+          file: sterling/sqlaliascachereplicas.xts
+    - id: investigate_alias_db_health
+      type: manual
+      title: Investigate Alias DB replica health
+      instructions: |
+        In the SqlAliasCacheReplicas XTS view:
+        - Filter by the control/worker ring name relevant to the incident.
+        - Select the alias database instance referenced in the incident.
+        - Open the database replicas and verify all replicas are healthy.
+        - If replicas are unhealthy, review MonSqlSystemHealth filtered by the Alias DB AppName ({{ .alias_app_name }}).
+        - If no obvious cause is found, involve the SQL DB Availability team.
+    - id: investigate_gateway_cert_dns_issues
+      type: manual
+      title: Investigate gateway certificate or DNS issues
+      instructions: |
+        If the Alias DB is healthy, investigate gateway-side issues:
+        - Check for ongoing Service Fabric or infrastructure deployments that may have caused certificate rollover.
+          If found, involve deployment on-calls to pause or rollback.
+        - Investigate name resolution issues by JITing to an affected gateway node and attempting to resolve
+          the MN node hosting the Alias DB (e.g., nslookup MN7).
+        - If DNS resolution fails, escalate to the Azure DNS team.
+    - id: restart_gateway_process_manual
+      type: manual
+      title: Restart gateway process (manual, destructive)
+      instructions: |
+        IMPORTANT:
+        Do NOT restart more than two gateways at the same time.
+        If multiple restarts are required, escalate before proceeding.
+
+        The following CAS command may be used to restart a gateway process.
+        This is a destructive action and must be executed manually with appropriate judgment:
+
+        Get-FabricNode -NodeName GW.47 -NodeClusterName {{ .cluster_name }} |
+          Kill-Process -ProcessName xdbgatewaymain.exe -ApplicationNameUri fabric:/Gateway
+
+        TODO: Ensure correct NodeName is identified from the incident and XTS views before executing.
+    - id: escalate_or_followup
+      type: manual
+      title: Escalation and follow-up
+      instructions: |-
+        If mitigation steps do not resolve the issue or indicate a broader outage:
+        - Request assistance from the Azure SQL DB/Gateway on-call queue.
+        - If on the Gateway queue, raise an RA to the Azure SQL DB Expert (Gateway escalations).
+        - For single gateway instance issues, follow post-mitigation RCA guidance in the
+          'Alias high refresh rate and high CPU usage' documentation.

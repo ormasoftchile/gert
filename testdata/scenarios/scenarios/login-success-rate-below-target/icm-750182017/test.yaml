@@ -1,0 +1,10 @@
+# Auto-generated from ICM 750182017
+expected_outcome: resolved
+expected_captures:
+  failure_row_count: ">0"
+  login_failure_cause: "IsCustomerBypassingGW"
+must_reach:
+  - query_login_failures
+  - query_failure_breakdown
+  - route_mitigation
+description: "ICM 750182017  IsCustomerBypassingGW from ProdWeu1a (same server as 749305490)"

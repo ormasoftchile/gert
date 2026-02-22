@@ -1,0 +1,106 @@
+apiVersion: runbook/v0
+meta:
+    name: pod-crashloopbackoff-investigation
+    description: Investigate Kubernetes pods entering CrashLoopBackOff by checking status, logs, events, and validating monitoring dashboards.
+    vars:
+        namespace: ""
+        service: ""
+    defaults:
+        timeout: 30s
+    governance:
+        allowed_commands:
+            - kubectl
+        denied_commands: []
+        deny_env_vars: []
+        redact: []
+        evidence:
+            require_for_manual: true
+            store_full_stdout: false
+steps:
+    - id: check_pod_status
+      type: cli
+      title: Check Pod Status
+      with:
+        argv:
+            - kubectl
+            - get
+            - pods
+            - -n
+            - '{{ .namespace }}'
+            - -l
+            - app={{ .service }}
+      instructions: ""
+      required_evidence: []
+      approvals: null
+      capture:
+        output: stdout
+      assertions: []
+      timeout: 30s
+      replay_mode: ""
+    - id: get_pod_logs
+      type: cli
+      title: Get Pod Logs
+      with:
+        argv:
+            - kubectl
+            - logs
+            - -n
+            - '{{ .namespace }}'
+            - -l
+            - app={{ .service }}
+            - --tail=100
+      instructions: ""
+      required_evidence: []
+      approvals: null
+      capture:
+        output: stdout
+      assertions: []
+      timeout: 30s
+      replay_mode: ""
+    - id: check_cluster_events
+      type: cli
+      title: Check Events
+      with:
+        argv:
+            - kubectl
+            - get
+            - events
+            - -n
+            - '{{ .namespace }}'
+            - --sort-by=.lastTimestamp
+      instructions: ""
+      required_evidence: []
+      approvals: null
+      capture:
+        output: stdout
+      assertions: []
+      timeout: 30s
+      replay_mode: ""
+    - id: validate_monitoring_dashboard
+      type: manual
+      title: Validate Monitoring Dashboard
+      with: null
+      instructions: |
+        Open the Grafana dashboard for the affected service and verify overall health.
+
+        Confirm the following conditions:
+        - Error rate is below 1%
+        - P99 latency is below 500ms
+        - No anomalous traffic patterns are present
+
+        Take a screenshot of the dashboard showing these metrics as evidence.
+      required_evidence:
+        - kind: checklist
+          name: dashboard_validation
+          items:
+            - Error rate below 1%
+            - P99 latency below 500ms
+            - No anomalous traffic patterns
+        - kind: attachment
+          name: grafana_dashboard_screenshot
+          items: []
+      approvals: null
+      capture: {}
+      assertions: []
+      timeout: ""
+      replay_mode: ""

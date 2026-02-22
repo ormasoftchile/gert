@@ -1,0 +1,8 @@
+# ICM 750464509  LoginFailureCause: IsSuppressed
+# State: ACTIVE | Severity: Sev-3
+# Region: ProdEus2a (East US 2) | Team: GeoDR
+# Date: 2026-02-19T20:29:59Z | Impact: 2026-02-19T19:44:05Z
+server_name: "spartan-srv-nam-bcprodus-4a6fc5f61e55"
+database_name: "db_bcprodus_t73424003_20250925_02015176_3043"
+environment: "ProdEus2a"
+login_failure_cause: "IsSuppressed"

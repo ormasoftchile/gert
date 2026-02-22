@@ -749,11 +749,20 @@ func validatePrecondition(index int, s Step) []*ValidationError {
 func validateDomainWithPath(rb *Runbook, baseDir string) []*ValidationError {
 	errs := ValidateDomain(rb)
 
+	// Discover project context for package-aware tool resolution
+	var proj *Project
+	if baseDir != "" {
+		proj, _ = DiscoverProject(baseDir)
+		if proj == nil {
+			proj = FallbackProject(baseDir)
+		}
+	}
+
 	// Load and cache tool definitions for deep validation
 	if len(rb.Tools) > 0 && baseDir != "" {
 		toolDefs := make(map[string]*ToolDefinition)
 		for _, name := range rb.Tools {
-			resolved := filepath.Join(baseDir, "tools", name+".tool.yaml")
+			resolved := ResolveToolPathCompat(proj, rb, name, baseDir)
 			td, loadErr := LoadToolFile(resolved)
 			if loadErr != nil {
 				errs = append(errs, &ValidationError{

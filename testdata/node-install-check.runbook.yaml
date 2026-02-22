@@ -1,0 +1,76 @@
+apiVersion: runbook/v0
+meta:
+    name: node-install-check
+    kind: composable
+    description: Test runbook that checks if Node.js is installed. Demonstrates branching, conditions, captures, manual steps, CLI steps, and outcomes.
+    source:
+        file: node-install-check.md
+    inputs:
+        min_version:
+            from: prompt
+            description: "Minimum acceptable Node.js major version (e.g. 18)"
+            default: "18"
+tree:
+    - step:
+        id: check_node
+        type: cli
+        title: Check if Node.js is installed
+        with:
+            argv: ["node", "--version"]
+        capture:
+            node_version: stdout
+        outcomes:
+            - when: 'node_version == ""'
+              state: escalated
+              recommendation: Node.js is not installed. Install it from https://nodejs.org
+      branches:
+        - condition: 'node_version != ""'
+          label: Node.js detected
+          steps:
+            - step:
+                id: show_version
+                type: manual
+                title: Node.js version detected
+                instructions: |
+                    Installed version: **{{ .node_version }}**
+
+                    Minimum required: **v{{ .min_version }}**
+
+                    Checking if the installed version meets the requirement.
+            - step:
+                id: check_npm
+                type: cli
+                title: Check if npm is available
+                with:
+                    argv: ["npm", "--version"]
+                capture:
+                    npm_version: stdout
+            - step:
+                id: check_npx
+                type: cli
+                title: Check if npx is available
+                with:
+                    argv: ["npx", "--version"]
+                capture:
+                    npx_version: stdout
+            - step:
+                id: summary
+                type: manual
+                title: Environment summary
+                instructions: |
+                    ## Node.js Environment
+
+                    | Tool | Version |
+                    |------|---------|
+                    | node | {{ .node_version }} |
+                    | npm  | {{ .npm_version }} |
+                    | npx  | {{ .npx_version }} |
+
+                    All tools are available.
+                outcomes:
+                    - when: 'npm_version != "" and npx_version != ""'
+                      state: resolved
+                      recommendation: Node.js environment is fully functional. All required tools (node, npm, npx) are available.
+                    - when: 'npm_version == "" or npx_version == ""'
+                      state: escalated
+                      recommendation: Node.js is installed but npm or npx is missing. Reinstall from https://nodejs.org

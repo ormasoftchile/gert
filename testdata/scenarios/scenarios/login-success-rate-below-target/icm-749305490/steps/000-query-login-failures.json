@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "rowCount": 1,
+  "columns": [
+    "AppTypeName",
+    "error",
+    "state",
+    "FailureCount"
+  ],
+  "data": [
+    {
+      "AppTypeName": "Worker.Vldb.Compute",
+      "error": 40613,
+      "state": 129,
+      "FailureCount": 401
+    }
+  ],
+  "metadata": {
+    "executedAt": "2026-02-19T16:50:26.3230989Z"
+  }
+}

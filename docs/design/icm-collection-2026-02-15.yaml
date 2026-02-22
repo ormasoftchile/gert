@@ -1,0 +1,306 @@
+# ICM Incident Collection — Azure SQL DB
+# Collected: 2026-02-15 via Playwright + MCP enrichment
+# Service: Azure SQL DB (all teams)
+# Date range: 2026-02-09 to 2026-02-15
+# State: Active, Mitigated, Resolved
+# Severity: 0, 1, 2
+# Environment: Prod
+
+collection_metadata:
+  date: "2026-02-15"
+  service: "Azure SQL DB"
+  total_scraped: 45
+  enriched: 20
+  method: "Playwright (ICM web UI scrape) → MCP get_incident_details_by_id"
+
+# ============================================================
+# CATEGORIZED BY TSG LINK
+# ============================================================
+
+tsg_categories:
+
+  # -----------------------------------------------------------
+  # CONNECTIVITY TSGs (from TSG-SQL-DB-Connectivity repo)
+  # -----------------------------------------------------------
+  login-success-rate-below-target:
+    tsg_url: "https://eng.ms/docs/.../sql-connectivity/sql-db-connectivity/connection/login-success-rate-below-target"
+    repo_path: "TSG/connection/login-success-rate-below-target.md"
+    team: "SQL DB Availability"  # Note: team is Availability, TSG is Connectivity
+    incident_count: 6
+    incidents:
+      - id: 747870160
+        severity: 2
+        state: MITIGATED
+        server: sobeys-sql01
+        database: AlarmDB
+        tenant_ring: tr48699.eastus1-a.worker.database.windows.net
+        how_fixed: Transient
+      - id: 748056115
+        severity: 2
+        state: MITIGATED
+        server: v6yf0bms4l
+        database: DedicatedContent_625546
+        tenant_ring: tr3513.westus3-a.worker.database.windows.net
+        how_fixed: Fixed with TSG
+      - id: 748044982
+        severity: 2
+        state: MITIGATED
+        server: j65iv4mfj6
+        database: DedicatedContent_625546
+        tenant_ring: tr35321.eastus1-a.worker.database.windows.net
+        how_fixed: Fixed with TSG
+      - id: 747805485
+        severity: 2
+        state: MITIGATED
+        server: s1028192m4-p-sql
+        database: cst1028192m-4-PowerBIStore
+        tenant_ring: tr37893.eastus1-a.worker.database.windows.net
+        how_fixed: Transient
+      - id: 747702806
+        severity: 2
+        state: MITIGATED
+        server: azeu2-prd-shared-sqlsrv-03
+        database: azeu2-prd-tnnta7db2-sqldb
+        tenant_ring: tr32348.eastus2-a.worker.database.windows.net
+        how_fixed: Transient
+      - id: 747789337
+        severity: 2
+        state: MITIGATED
+        server: kcmd4evip8
+        how_fixed: False Alarm/Transient
+
+  # -----------------------------------------------------------
+  # AVAILABILITY TSGs
+  # -----------------------------------------------------------
+  trdb0002-common-unavailability-root-causes:
+    tsg_url: "https://eng.ms/docs/.../sql-db-availability-tsgs/ha/trdb0002-common-unavailability-root-causes"
+    team: "SQL Managed Instance: Availability"
+    incident_count: 3
+    incidents:
+      - id: 748247603
+        severity: 2
+        state: MITIGATED
+        server: uat-euw-pe-sqlmi-dbsvr
+        database: uat1-pcm-master
+        how_fixed: Fixed by Automation
+      - id: 747822325
+        severity: 2
+        state: MITIGATED
+        server: smi-shs-sea-prd-01
+        database: ApplicationData_1
+        how_fixed: Fixed by Automation
+      - id: 747546534
+        severity: 2
+        state: MITIGATED
+        server: olympos-sqlmi-crmxvan-prd-weu
+        how_fixed: Fixed by Automation
+
+  # -----------------------------------------------------------
+  # GEODR TSGs
+  # -----------------------------------------------------------
+  geodr0003-log-full-due-to-availability-replica:
+    tsg_url: "https://eng.ms/docs/.../geodr/geodr0003-log-full-due-to-availability_replica"
+    team: "GeoDR (Failover Groups, AutoDR, DB Copy, Read Scale)"
+    incident_count: 1
+    incidents:
+      - id: 747844538
+        severity: 2
+        state: MITIGATED
+        server: itpayments-westus2-uat-sqlserver
+        database: itpaymentspayhubdata
+        how_fixed: Other
+
+  geodr0039-database-out-of-rpo:
+    tsg_url: "https://eng.ms/docs/.../geodr/geodr0039-database-out-of-rpo-_-spo-database-out-o"
+    team: "GeoDR (Failover Groups, AutoDR, DB Copy, Read Scale)"
+    incident_count: 2
+    incidents:
+      - id: 747989465
+        severity: 2
+        state: MITIGATED
+        server: hvhfwoptj0
+        database: DedicatedContent_12615_105
+      - id: 747527087
+        severity: 2
+        state: MITIGATED
+        server: vfoihogi3y
+
+  geodr0002-workflow-stuck:
+    tsg_url: "https://eng.ms/docs/.../geodr/geodr0002-workflow-stuck-with-potential-unavailabi"
+    team: "GeoDR (Failover Groups, AutoDR, DB Copy, Read Scale)"
+    incident_count: 1
+    incidents:
+      - id: 747584395
+        severity: 2
+        state: ACTIVE
+        server: jjksqlsrvreu2
+
+  # -----------------------------------------------------------
+  # SOCRATES (Hyperscale) TSGs
+  # -----------------------------------------------------------
+  soc001-unhealthy-socrates-database:
+    tsg_url: "https://eng.ms/cid/4922fa9f-66ba-4e28-9a19-64ec1e35bd01/..."
+    team: "Socrates Data Plane (Hyperscale)"
+    incident_count: 2
+    incidents:
+      - id: 747832154
+        severity: 2
+        state: MITIGATED
+        server: azeu2-prd-shared-sqlsrv-01
+        database: azeu2-prd-tnnt5f678-sqldb
+        how_fixed: Transient
+      - id: 747595139
+        severity: 2
+        state: RESOLVED
+        server: gddzsoqtdgjy
+        how_fixed: Fixed with TSG
+
+  # -----------------------------------------------------------
+  # UNCATEGORIZED (no tsgLink)
+  # -----------------------------------------------------------
+  uncategorized:
+    incident_count: 5
+    incidents:
+      - id: 748043331
+        team: SQL DB Availability
+        title: "DedicatedContent_625546 on j65iv4mfj6 - ErrorCode: DatabaseNotInStateToFailover"
+        server: j65iv4mfj6
+        how_fixed: Fixed with TSG
+      - id: 747804670
+        team: "GeoDR (Failover Groups, AutoDR, DB Copy, Read Scale)"
+        title: "SPO Databases in Seeding post Failover in region [southcentralus1]"
+      - id: 747800163
+        team: SQL DB Availability
+        title: "Multiple DBs down in SouthCentralUS Region"
+        server: xennjc5d0a
+        how_fixed: Fixed with Ad-Hoc steps
+      - id: 747788047
+        team: "GeoDR (Failover Groups, AutoDR, DB Copy, Read Scale)"
+        title: "SPO Databases login failed in region [southcentralus1]"
+      - id: 747458409
+        team: SQL DB Availability
+        title: "(manual incident)"
+        server: gmilibrary
+        how_fixed: Fixed with Ad-Hoc steps
+
+# ============================================================
+# RAW IDS (all 45 from Playwright scrape — not all enriched)
+# ============================================================
+raw_ids:
+  - 748247603
+  - 748056115
+  - 748044982
+  - 748043331
+  - 747989465
+  - 747870160
+  - 747844538
+  - 747832154
+  - 747822325
+  - 747805485
+  - 747804670
+  - 747800163
+  - 747789337
+  - 747788047
+  - 747769124
+  - 747702806
+  - 747595139
+  - 747584395
+  - 747546534
+  - 747527087
+  - 747458409
+  - 747428525
+  - 747405830
+  - 747399763
+  - 747389920
+  - 747364740
+  - 747327647
+  - 747262080
+  - 747007036
+  - 746631362
+  - 746473653
+  - 746439510
+  - 746389771
+  - 746341313
+  - 746213351
+  - 746212863
+  - 746137846
+  - 746126159
+  - 745984629
+  - 745938587
+  - 745525329
+  - 745521182
+  - 745517791
+  - 745435014
+  - 745435002
+
+# ============================================================
+# OBSERVATIONS
+# ============================================================
+# 1. login-success-rate-below-target is the most common TSG (6/20 = 30%)
+#    - All come from "SQL DB Availability" team but reference a Connectivity TSG
+#    - All have ServerName, DatabaseName, PrimaryTenantRing custom fields
+#    - Most resolved as "Transient" — suggests the TSG outcome should be "resolved"
+#
+# 2. Custom fields are consistent across all incidents:
+#    - CustomerServerName: 20/20
+#    - CustomerDatabaseName: 18/20
+#    - ServerName: 20/20
+#    - DatabaseName: 18/20
+#    - PrimaryTenantRing: 15/20
+#    - AppName: 14/20
+#    - SLO: 12/20
+#
+# 3. SPO/GeoDR incidents lack standard server fields — use Properties JSON instead
+#
+# 4. tsgLink is present in 15/20 enriched incidents (75%)
+#    - The 5 uncategorized have no tsgLink — manual incidents or SPO alerts
+#
+# 5. For the TSG quality harness, login-success-rate-below-target is the best
+#    candidate to start with — high volume, consistent fields, clear TSG mapping
+
+# ============================================================
+# CROSS-REPO TSG ANALYSIS (2,200+ TSGs scanned)
+# ============================================================
+# Scanned all 4 repos for TSGs with 3+ XTS/Kusto queries AND structured steps.
+# Repos: Connectivity (402), Availability (487), GeoDR (150+), Performance (1167)
+#
+# Top harness candidates by query density × step structure:
+#
+#  Repo   | TSG                                        | Queries | Steps
+#  -------|--------------------------------------------|---------|---------
+#  AVAIL  | InitialGuide.md                            | 37      | 44
+#  AVAIL  | CRGW0001-Login-success-rate-below-99%      | 23      | 20
+#  PERF   | CPU104-Scheduler-Imbalances                | 25      | 3
+#  PERF   | PP0006-2-Manually-check-IDSU               | 25      | 7
+#  PERF   | PP0006-Mitigate-Space-Issue                | 18      | 3
+#  AVAIL  | TRDB0082-Page-restore-scripts              | 18      | 2
+#  CONN   | low-customer-database-availability-rca     | 14      | 5
+#  AVAIL  | Redo-Lag-Analysis                          | 13      | 13
+#  PERF   | MM0001-4-Memory-max-update                 | 10      | 6
+#  PERF   | TSGRS-Fix-up-CRM-new-databases-XIO-tier    | 10      | 6
+#  CONN   | azure-sql-tenant-ring-availability-spo     | 8       | 6
+#  CONN   | privatelink-redirection-mapid-cleanup      | 8       | 13
+#  AVAIL  | Category-HasSqlDump                        | 8       | 8
+#  AVAIL  | Soc066-2-PageId-Mismatch                   | 8       | 11
+#  AVAIL  | Soc029-5-Long-Running-Recovery             | 8       | 7
+#  PERF   | TSGRBPEXGP01-Mitigate-RBPEx5123Error       | 8       | 5
+#  GEODR  | GeoDR0083-sysdbreg-mismatch                | 7       | 2
+#  PERF   | PPBOT-040-Tempdb-Out-of-Data-Space          | 7       | 10
+#  CONN   | login-rate-drop-of-95                      | 6       | 5
+#  GEODR  | AutoDR-FG-Failover-v2                      | 4       | 4
+#
+# Key insight: CRGW0001 (Availability) and login-success-rate-below-target
+# (Connectivity) are the SAME TSG viewed from different angles.
+# It has 23 queries, 20 steps, AND matches 6 of our 20 enriched ICMs.
+#
+# Recommended compile order for runbooks:
+#  1. login-success-rate-below-target (CONN) — already compiled, 6 ICM matches
+#  2. CRGW0001 (AVAIL) — same TSG, deeper version with 23 queries
+#  3. low-customer-database-availability-rca (CONN) — RCA workflow, 14 queries
+#  4. Redo-Lag-Analysis (AVAIL) — structured 13-step diagnostic
+#  5. PPBOT-040-Tempdb-Out-of-Space (PERF) — common issue, 10 steps
+#  6. login-rate-drop-of-95 (CONN) — alert-driven, pairs with ICM
+#  7. Category-HasSqlDump (AVAIL) — dump analysis, 8 steps
+#  8. GEODR0063-MI-FG-Connectivity (GEODR) — MI connectivity check
+#  9. CPU104-Scheduler-Imbalances (PERF) — deep diagnostic
+# 10. AutoDR-FG-Failover-v2 (GEODR) — failover group triage

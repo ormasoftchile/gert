@@ -1,0 +1,53 @@
+apiVersion: runbook/v0
+tools:
+  xts: ../testdata/tools/xts.tool.yaml
+meta:
+    name: query-cms
+    kind: reference
+    description: Reference guide describing multiple ways to run queries against the Cluster Metadata Store (CMS) using XTS tools and views.
+    xts:
+        environment: ""
+steps:
+    - id: run_cms_query_via_http_request_tool
+      type: manual
+      title: Run a CMS query using the XTS HttpRequest Query Tool
+      instructions: |
+        This procedure describes how to run a CMS query using the XTS HttpRequest Query Tool.
+
+        Steps:
+        - Open XTS.
+        - Filter to the target environment (for example, EastUS1-a).
+        - Right-click the environment and choose **HttpRequest Query Tool**.
+        - Ensure the CMS database is selected.
+        - Write or paste the desired T-SQL query (CMS runs on SQL Server).
+        - Press the green play button to execute the query.
+        - Review results in the Results tab and errors or timing information in the Messages tab.
+
+        TODO: No concrete example query is provided in the TSG, so this step remains instructional only.
+      required_evidence:
+        - kind: checklist
+          name: http_request_tool_checklist
+          items:
+            - XTS opened
+            - Environment selected
+            - HttpRequest Query Tool opened
+            - CMS database selected
+            - Query executed successfully
+    - id: run_cms_query_via_adhoc_view
+      type: tool
+      title: Run a CMS query using the AdhocCMSQuery.xts view
+      tool:
+        name: xts
+        action: view
+        args:
+          cluster: '{{ .environment }}'
+          file: sterling/AdhocCMSQuery.xts
+    - id: run_global_cms_query
+      type: tool
+      title: Run a global CMS query across all instances
+      tool:
+        name: xts
+        action: view
+        args:
+          cluster: '{{ .environment }}'
+          file: sterling/Global Adhoc CMS Query.xts

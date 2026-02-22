@@ -3,9 +3,12 @@
 package schema
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -15,9 +18,19 @@ type Runbook struct {
 	APIVersion string            `yaml:"apiVersion" json:"apiVersion" jsonschema:"required,enum=runbook/v0,enum=runbook/v1"`
 	Imports    map[string]string `yaml:"imports,omitempty" json:"imports,omitempty"`
 	Tools      []string          `yaml:"tools,omitempty"   json:"tools,omitempty"`
+	ToolPaths  map[string]string `yaml:"-" json:"-"`
 	Meta       Meta              `yaml:"meta"       json:"meta"       jsonschema:"required"`
 	Steps      []Step            `yaml:"steps,omitempty" json:"steps,omitempty"`
 	Tree       []TreeNode        `yaml:"tree,omitempty"  json:"tree,omitempty"`
+}
+
+func (rb *Runbook) ResolveToolPath(name string) string {
+	if rb != nil && rb.ToolPaths != nil {
+		if p := strings.TrimSpace(rb.ToolPaths[name]); p != "" {
+			return p
+		}
+	}
+	return filepath.Join("tools", name+".tool.yaml")
 }
 
 // TreeNode is a node in the runbook execution tree.
@@ -41,6 +54,7 @@ type Meta struct {
 	Kind        string               `yaml:"kind,omitempty"       json:"kind,omitempty" jsonschema:"enum=mitigation,enum=reference,enum=composable,enum=rca"`
 	Description string               `yaml:"description,omitempty" json:"description,omitempty"`
 	Source      *SourceMeta          `yaml:"source,omitempty"     json:"source,omitempty"`
+	Scenarios   map[string]string    `yaml:"scenarios,omitempty"  json:"scenarios,omitempty"`
 	Vars        map[string]string    `yaml:"vars,omitempty"        json:"vars,omitempty"`
 	Inputs      map[string]*InputDef `yaml:"inputs,omitempty"      json:"inputs,omitempty"`
 	Defaults    *Defaults            `yaml:"defaults,omitempty"    json:"defaults,omitempty"`
@@ -272,12 +286,347 @@ func LoadFile(path string) (*Runbook, error) {
 
 // Load parses a runbook from an io.Reader with strict unknown-field rejection.
 func Load(r io.Reader) (*Runbook, error) {
-	dec := yaml.NewDecoder(r)
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("read runbook: %w", err)
+	}
+
+	rb, strictErr := decodeRunbookStrict(data)
+	if strictErr == nil {
+		return rb, nil
+	}
+
+	// Fallback for shorthand/verbose imports/tools forms.
+	flexRB, flexErr := decodeRunbookFlexible(data)
+	if flexErr != nil {
+		return nil, fmt.Errorf("decode runbook: %w", strictErr)
+	}
+	return flexRB, nil
+}
+
+func decodeRunbookStrict(data []byte) (*Runbook, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true) // reject unknown fields (FR-001)
 
 	var rb Runbook
 	if err := dec.Decode(&rb); err != nil {
-		return nil, fmt.Errorf("decode runbook: %w", err)
+		return nil, err
 	}
 	return &rb, nil
+}
+
+func decodeRunbookFlexible(data []byte) (*Runbook, error) {
+	type runbookFlex struct {
+		APIVersion string      `yaml:"apiVersion"`
+		Imports    interface{} `yaml:"imports,omitempty"`
+		Tools      interface{} `yaml:"tools,omitempty"`
+		Meta       Meta        `yaml:"meta"`
+		Steps      []Step      `yaml:"steps,omitempty"`
+		Tree       []TreeNode  `yaml:"tree,omitempty"`
+	}
+
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+
+	var wire runbookFlex
+	if err := dec.Decode(&wire); err != nil {
+		return nil, err
+	}
+
+	imports, err := normalizeImportsValue(wire.Imports)
+	if err != nil {
+		return nil, fmt.Errorf("decode imports: %w", err)
+	}
+	tools, toolPaths, err := normalizeToolsValue(wire.Tools)
+	if err != nil {
+		return nil, fmt.Errorf("decode tools: %w", err)
+	}
+
+	return &Runbook{
+		APIVersion: wire.APIVersion,
+		Imports:    imports,
+		Tools:      tools,
+		ToolPaths:  toolPaths,
+		Meta:       wire.Meta,
+		Steps:      wire.Steps,
+		Tree:       wire.Tree,
+	}, nil
+}
+
+func normalizeImportsValue(value interface{}) (map[string]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	imports := make(map[string]string)
+	add := func(alias, path string) {
+		alias = strings.TrimSpace(alias)
+		path = strings.TrimSpace(path)
+		if alias == "" {
+			return
+		}
+		if path == "" {
+			path = filepath.Join("..", alias, alias+".runbook.yaml")
+		} else {
+			path = normalizeRunbookRefPath(path)
+		}
+		imports[alias] = path
+	}
+
+	var parseSpec func(alias string, spec interface{}) error
+	parseSpec = func(alias string, spec interface{}) error {
+		if spec == nil {
+			add(alias, "")
+			return nil
+		}
+		switch typed := spec.(type) {
+		case string:
+			if alias == "" {
+				add(typed, "")
+			} else {
+				add(alias, typed)
+			}
+			return nil
+		case map[string]interface{}:
+			if alias == "" {
+				if foundAlias, ok := asString(typed["alias"]); ok {
+					foundPath, _ := asString(typed["path"])
+					if foundPath == "" {
+						foundPath, _ = asString(typed["runbook"])
+					}
+					add(foundAlias, foundPath)
+					return nil
+				}
+				if foundAlias, ok := asString(typed["name"]); ok {
+					foundPath, _ := asString(typed["path"])
+					if foundPath == "" {
+						foundPath, _ = asString(typed["runbook"])
+					}
+					add(foundAlias, foundPath)
+					return nil
+				}
+				if len(typed) == 1 {
+					for k, v := range typed {
+						return parseSpec(k, v)
+					}
+				}
+				return fmt.Errorf("expected import alias in object form")
+			}
+
+			path := ""
+			if v, ok := asString(typed["path"]); ok {
+				path = v
+			}
+			if path == "" {
+				if v, ok := asString(typed["runbook"]); ok {
+					path = v
+				}
+			}
+			add(alias, path)
+			return nil
+		case map[interface{}]interface{}:
+			converted := make(map[string]interface{}, len(typed))
+			for k, v := range typed {
+				converted[fmt.Sprint(k)] = v
+			}
+			return parseSpec(alias, converted)
+		default:
+			if s, ok := asString(spec); ok {
+				if alias == "" {
+					add(s, "")
+				} else {
+					add(alias, s)
+				}
+				return nil
+			}
+			return fmt.Errorf("unsupported imports value type %T", spec)
+		}
+	}
+
+	switch typed := value.(type) {
+	case string:
+		add(typed, "")
+	case []interface{}:
+		for _, item := range typed {
+			if err := parseSpec("", item); err != nil {
+				return nil, err
+			}
+		}
+	case map[string]interface{}:
+		for alias, spec := range typed {
+			if err := parseSpec(strings.TrimSpace(alias), spec); err != nil {
+				return nil, err
+			}
+		}
+	case map[interface{}]interface{}:
+		for rawAlias, spec := range typed {
+			if err := parseSpec(strings.TrimSpace(fmt.Sprint(rawAlias)), spec); err != nil {
+				return nil, err
+			}
+		}
+	default:
+		return nil, fmt.Errorf("unsupported imports value type %T", value)
+	}
+
+	if len(imports) == 0 {
+		return nil, nil
+	}
+	return imports, nil
+}
+
+func normalizeToolsValue(value interface{}) ([]string, map[string]string, error) {
+	if value == nil {
+		return nil, nil, nil
+	}
+
+	seen := make(map[string]struct{})
+	tools := make([]string, 0)
+	toolPaths := make(map[string]string)
+	add := func(name, path string) {
+		name = strings.TrimSpace(name)
+		path = strings.TrimSpace(path)
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; !ok {
+			seen[name] = struct{}{}
+			tools = append(tools, name)
+		}
+		if path != "" {
+			toolPaths[name] = path
+		}
+	}
+
+	var parseSpec func(name string, spec interface{}) error
+	parseSpec = func(name string, spec interface{}) error {
+		if spec == nil {
+			add(name, "")
+			return nil
+		}
+		switch typed := spec.(type) {
+		case string:
+			if name == "" {
+				add(typed, "")
+			} else {
+				add(name, typed)
+			}
+			return nil
+		case map[string]interface{}:
+			if name == "" {
+				if foundName, ok := asString(typed["name"]); ok {
+					foundPath, _ := asString(typed["path"])
+					if foundPath == "" {
+						foundPath, _ = asString(typed["file"])
+					}
+					add(foundName, foundPath)
+					return nil
+				}
+				if foundName, ok := asString(typed["tool"]); ok {
+					foundPath, _ := asString(typed["path"])
+					if foundPath == "" {
+						foundPath, _ = asString(typed["file"])
+					}
+					add(foundName, foundPath)
+					return nil
+				}
+				if len(typed) == 1 {
+					for k, v := range typed {
+						return parseSpec(k, v)
+					}
+				}
+				return fmt.Errorf("expected tool name in object form")
+			}
+
+			path := ""
+			if v, ok := asString(typed["path"]); ok {
+				path = v
+			}
+			if path == "" {
+				if v, ok := asString(typed["file"]); ok {
+					path = v
+				}
+			}
+			add(name, path)
+			return nil
+		case map[interface{}]interface{}:
+			converted := make(map[string]interface{}, len(typed))
+			for k, v := range typed {
+				converted[fmt.Sprint(k)] = v
+			}
+			return parseSpec(name, converted)
+		default:
+			if s, ok := asString(spec); ok {
+				if name == "" {
+					add(s, "")
+				} else {
+					add(name, s)
+				}
+				return nil
+			}
+			return fmt.Errorf("unsupported tools value type %T", spec)
+		}
+	}
+
+	switch typed := value.(type) {
+	case string:
+		add(typed, "")
+	case []interface{}:
+		for _, item := range typed {
+			if err := parseSpec("", item); err != nil {
+				return nil, nil, err
+			}
+		}
+	case map[string]interface{}:
+		for name, spec := range typed {
+			if err := parseSpec(strings.TrimSpace(name), spec); err != nil {
+				return nil, nil, err
+			}
+		}
+	case map[interface{}]interface{}:
+		for rawName, spec := range typed {
+			if err := parseSpec(strings.TrimSpace(fmt.Sprint(rawName)), spec); err != nil {
+				return nil, nil, err
+			}
+		}
+	default:
+		return nil, nil, fmt.Errorf("unsupported tools value type %T", value)
+	}
+
+	if len(tools) == 0 {
+		return nil, nil, nil
+	}
+	if len(toolPaths) == 0 {
+		toolPaths = nil
+	}
+	return tools, toolPaths, nil
+}
+
+func asString(v interface{}) (string, bool) {
+	if v == nil {
+		return "", false
+	}
+	s := strings.TrimSpace(fmt.Sprint(v))
+	if s == "" || s == "<nil>" {
+		return "", false
+	}
+	return s, true
+}
+
+func normalizeRunbookRefPath(path string) string {
+	p := strings.TrimSpace(path)
+	if p == "" {
+		return p
+	}
+	lower := strings.ToLower(p)
+	if strings.HasSuffix(lower, ".runbook.yaml") || strings.HasSuffix(lower, ".runbook.yml") {
+		return p
+	}
+	if strings.HasSuffix(lower, ".runbook") {
+		return p + ".yaml"
+	}
+	ext := strings.ToLower(filepath.Ext(p))
+	if ext == ".yaml" || ext == ".yml" {
+		return p
+	}
+	return p + ".runbook.yaml"
 }

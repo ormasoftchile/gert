@@ -1,0 +1,10 @@
+apiVersion: runbook/v0
+meta:
+  name: xts-missing-config
+  description: XTS step type without the xts config block.
+  xts:
+    environment: ProdAuce1a
+steps:
+  - id: bad_step
+    type: xts
+    title: Missing XTS Config

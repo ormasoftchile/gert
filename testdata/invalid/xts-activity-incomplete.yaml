@@ -1,0 +1,12 @@
+apiVersion: runbook/v0
+meta:
+  name: xts-activity-missing-fields
+  description: Activity mode without required file or activity fields.
+  xts:
+    environment: ProdAuce1a
+steps:
+  - id: bad_activity
+    type: xts
+    title: Incomplete Activity
+    xts:
+      mode: activity

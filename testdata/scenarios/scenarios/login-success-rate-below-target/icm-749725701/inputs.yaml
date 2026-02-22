@@ -1,0 +1,7 @@
+# ICM 749725701 — LoginFailureCause: LoginErrorsFound_40613_127_target
+# State: MITIGATED | Severity: Sev-3
+# Region: ProdUkSo1a
+server_name: "spartan-srv-gbr-bcprodweu-f09a8cd0451a"
+database_name: "db_bcprodweu_t06408626_20260211_09185519_bd5c"
+environment: "ProdUkSo1a"
+login_failure_cause: "LoginErrorsFound_40613_127_target"

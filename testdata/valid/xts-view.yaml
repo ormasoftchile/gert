@@ -1,0 +1,20 @@
+apiVersion: runbook/v0
+meta:
+  name: xts-view-only
+  description: Execute a full XTS view.
+  xts:
+    environment: LocalSterlingOnebox
+    views_root: "C:\\users\\cristiano\\appdata\\local\\XtsSharedFiles\\xtsviews"
+steps:
+  - id: run_view
+    type: xts
+    title: Run Sterling View
+    xts:
+      mode: view
+      file: "sterling/sterling servers and databases.xts"
+      params:
+        search_string: testsvr
+      auto_select: true
+      sql_timeout: 5
+    capture:
+      raw_output: stdout

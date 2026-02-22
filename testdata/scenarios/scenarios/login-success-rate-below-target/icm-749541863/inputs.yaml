@@ -1,0 +1,7 @@
+# ICM 749541863 — LoginFailureCause: UpdateSloInProgress_40613_127_target
+# State: ACTIVE | Severity: Sev-3
+# Region: ProdInCe1a
+server_name: "spartan-srv-ind-bcprodasia-9b67832a4d90"
+database_name: "db_bcprodasia_t19110896_20250115_06204759_76c3"
+environment: "ProdInCe1a"
+login_failure_cause: "UpdateSloInProgress_40613_127_target"

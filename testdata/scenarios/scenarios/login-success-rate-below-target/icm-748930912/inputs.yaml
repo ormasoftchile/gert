@@ -1,0 +1,7 @@
+# ICM 748930912 — LoginFailureCause: IsDbStuckInDenyConnections
+# State: MITIGATED | Severity: Sev-2
+# Region: ProdCaCe1a
+server_name: "wrh93n82x3"
+database_name: "Content_406901_105"
+environment: "ProdCaCe1a"
+login_failure_cause: "IsDbStuckInDenyConnections"

@@ -1,0 +1,27 @@
+# Resolved inputs for scenario: geodr-lag-747007036
+
+# From ICM direct fields
+environment: tr56909.eastus1-a.worker.database.windows.net    # occuringLocation.instance (note: tenant ring, not env name)
+impact_start_time: "2026-02-12T16:43:10Z"
+severity: 2
+region: East US
+
+# From ICM custom fields
+server_name: irt-ppdi-eastus-prod
+database_name: irt-ppdi
+app_name: aed2ea4bdbf8
+tenant_ring: tr56909.eastus1-a.worker.database.windows.net
+node_name: _DB_11
+slo: P11
+
+# Derived from title parsing
+partner_region: westeurope1-a
+partner_tenant_ring: tr56076.westeurope1-a
+
+# From correlation ID
+fabric_uri: "fabric:/Worker.ISO.Premium/aed2ea4bdbf8"
+
+# Note: occuringLocation.instance is the tenant ring FQDN, not a standard environment name
+# like "ProdEus1a". This is a GeoDR-specific pattern where the alert connector uses the
+# tenant ring as the instance identifier. The XTS environment would need to be resolved
+# from the region (East US → ProdEus1a) via a separate lookup.

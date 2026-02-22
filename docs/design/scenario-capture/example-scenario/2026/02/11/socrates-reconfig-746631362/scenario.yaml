@@ -1,0 +1,36 @@
+# Scenario manifest: socrates-frequent-reconfig-746631362
+# Captured: 2026-02-14
+# ICM: https://portal.microsofticm.com/imp/v5/incidents/details/746631362
+
+icm_id: 746631362
+title: "[ProdCus1a][TSG: SOC036]Frequent failover of Logical DB ID : 429DCB66-0FCA-45F0-8193-6EBDA5DCB9F2 found in cluster : ProdCus1aTR16759 for App : fabric:/Worker.Vldb.Compute/e114342e7e6d"
+captured_at: "2026-02-14T15:50:00Z"
+tsg_link: "https://eng.ms/cid/4922fa9f-66ba-4e28-9a19-64ec1e35bd01/fid/e16602f0d36695d87c41133a9b563e7c51482d869761614103a26cb7dd929e8a"
+tsg_name: SOC036 - Frequent Reconfiguration of Socrates App
+routing_id: "AIMS://AZURE SQL DB/Socrates"
+monitor_name: SocratesAppFrequentlyReconfigV2
+
+custom_fields:
+  ServerName: credit-accounting-service-sql-secondary-prd
+  DatabaseName: 429DCB66-0FCA-45F0-8193-6EBDA5DCB9F2
+  AppName: c100441c59c7
+  PrimaryTenantRing: tr21582.centralus1-a.worker.database.windows.net
+  PrimaryNodeName: _DB_19
+
+location:
+  region: Central US
+  arm_region: centralus
+  cloud: Public
+
+mitigation: "Mitigated as transient — no errors in last hour, app healthy in SFE"
+
+kusto_queries_used:
+  - "MonSQLSystemHealth | where originalEventTimestamp > ago(1h) | where AppName == 'e114342e7e6d' | where message contains 'Error:'"
+  - "MonSQLSystemHealth | where originalEventTimestamp > ago(1h) | where AppName =~ 'e114342e7e6d' | summarize min(originalEventTimestamp), max(originalEventTimestamp) by NodeName, process_id"
+
+notes:
+  - Hyperscale (Socrates) database on VLDB compute
+  - Fabric URI in title: fabric:/Worker.Vldb.Compute/e114342e7e6d
+  - TSG SOC036 uses sterling servers and databases view for investigation
+  - Self-healed within ~1 hour, mitigated as transient
+  - Discussion mentions SFE verification (healthy app, no zombie replicas)

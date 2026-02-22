@@ -1,0 +1,125 @@
+# ICM Routing-to-Fields Mapping
+#
+# This file defines which ICM custom fields are available per routing pattern.
+# Used by gert's input binding layer to determine which inputs can be auto-resolved
+# from ICM and which need fallback to prompt.
+#
+# Built from analysis of 8 production ICMs across 4 routing patterns (Feb 2026).
+# This mapping is deterministic — it reflects the alert connector enrichment pipeline,
+# not statistical probability. Fields are either always populated or never populated
+# for a given routing pattern.
+
+# Universal fields — available on ALL Azure SQL DB incidents regardless of routing
+universal:
+  - name: CustomerServerName
+    field_id: 53
+    maps_to: server_name
+  - name: CustomerDatabaseName
+    field_id: 54
+    maps_to: database_name
+  - name: ServerName
+    field_id: 28388
+    maps_to: server_name      # duplicate of CustomerServerName
+  - name: DatabaseName
+    field_id: 28389
+    maps_to: database_name    # duplicate of CustomerDatabaseName
+
+# Standard incident fields (not custom fields — always present)
+standard:
+  - path: occuringLocation.instance
+    maps_to: environment
+  - path: impactStartTime
+    maps_to: start_time
+  - path: severity
+    maps_to: severity
+  - path: routingId
+    maps_to: routing_id
+  - path: monitorName
+    maps_to: monitor_name
+  - path: correlationId
+    maps_to: correlation_id
+
+# Per-routing enrichment — fields populated by the SqlRunners alert connector
+# after initial incident creation (within seconds, automated)
+routing_patterns:
+  - pattern: "AIMS://AZURE SQL DB/Availability"
+    description: "Sterling HA / login failures routed to Availability team"
+    enriched_fields:
+      - name: AppName
+        field_id: 28392
+        maps_to: app_name
+      - name: PrimaryTenantRing
+        field_id: 28393
+        maps_to: tenant_ring
+      - name: PrimaryNodeName
+        field_id: 28394
+        maps_to: node_name
+      - name: SLO
+        field_id: 26648
+        maps_to: slo
+
+  - pattern: "AIMS://AZURE SQL DB/GEODR"
+    description: "Geo-replication lag, failover group issues"
+    enriched_fields:
+      - name: AppName
+        field_id: 28392
+        maps_to: app_name
+      - name: PrimaryTenantRing
+        field_id: 28393
+        maps_to: tenant_ring
+      - name: PrimaryNodeName
+        field_id: 28394
+        maps_to: node_name
+      - name: SLO
+        field_id: 26648
+        maps_to: slo
+      - name: PartnerServerName
+        maps_to: partner_server_name
+      - name: PartnerDbName
+        maps_to: partner_database_name
+
+  - pattern: "AIMS://AZURE SQL DB/Socrates"
+    description: "Hyperscale compute, log service, page server issues"
+    enriched_fields:
+      - name: AppName
+        field_id: 28392
+        maps_to: app_name
+      - name: PrimaryTenantRing
+        field_id: 28393
+        maps_to: tenant_ring
+      - name: PrimaryNodeName
+        field_id: 28394
+        maps_to: node_name
+      # SLO not reliably populated for Socrates incidents
+
+  - pattern: "AIMS://AZURE SQL DB/Storage Engine"
+    description: "Storage engine errors, typically Fairfax/Gov cloud"
+    enriched_fields: []
+    # No enrichment — only base ServerName/DatabaseName available
+    # AppName, TenantRing, NodeName must come from prompt or XTS lookup
+
+  - pattern: "AIMS://AZURE SQL DB/SQL Managed Instance/*"
+    description: "Managed Instance incidents"
+    enriched_fields: []
+    # No enrichment for MI-routed incidents in our sample
+    # Needs further validation with MI-specific incidents
+
+  - pattern: "AIMS://AZURE SQL DB/Connectivity"
+    description: "Gateway, proxy, login failures routed to Connectivity team"
+    enriched_fields: []
+    # Connectivity-routed incidents typically have only ServerName/DatabaseName
+    # TenantRing/NodeName/AppName not populated by the connectivity alert connector
+    # TODO: validate with a connectivity-team incident sample
+
+# Alert source behavior
+# The alert source determines WHICH enrichment pipeline runs:
+#   - "AzureSQLDB-Production-SqlRunners-ICMConnector": full enrichment (AppName, TenantRing, NodeName)
+#   - "AzureSQLDB-Fairfax-SqlRunners-ICMConnector": minimal enrichment (ServerName/DatabaseName only)
+# The Fairfax (Gov cloud) connector has less enrichment capability.
+alert_sources:
+  - name: AzureSQLDB-Production-SqlRunners-ICMConnector
+    enriches: true
+    note: "Full enrichment — populates AppName, TenantRing, NodeName within seconds of incident creation"
+  - name: AzureSQLDB-Fairfax-SqlRunners-ICMConnector
+    enriches: false
+    note: "Minimal enrichment — only ServerName, DatabaseName. Gov cloud limitation."

@@ -1,0 +1,123 @@
+{
+  "RawQnA": [
+    {
+      "BasicInfoSection": {
+        "IncidentId": 747870160,
+        "Title": "[SLO: SQLDB_HS_Gen5_2]  [Sev-2 LoginFailureCause: IsReplicaInBuild] [ProdEus1a/AIMS://AZURE SQL DB/Availability] Sterling CRGW0001: Login success rate is below 99%",
+        "CreateDate": "2026-02-14T11:06:01.463+00:00",
+        "ImpactStartDate": "2026-02-14T09:55:05+00:00",
+        "RoutingId": "AIMS://AZURE SQL DB/Availability",
+        "CorrelationId": "ProdEus1a/AIMS://AZURE SQL DB/Availability",
+        "OccuringEnvironment": "PROD",
+        "OccuringDatacenter": "East US",
+        "OwningTenantName": "Azure SQL DB",
+        "OwningTeamName": "SQL DB Availability",
+        "Status": "MITIGATED",
+        "Severity": "2",
+        "IsSecurityRisk": "False",
+        "CloudInstanceId": 1,
+        "IsCustomerImpacting": "False",
+        "TsgId": "https://eng.ms/docs/cloud-ai-platform/azure-data/azure-data-azure-databases/sql-engineering/sql-connectivity/sql-db-connectivity/connection/login-success-rate-below-target",
+        "IsOutage": false,
+        "HasBridge": false,
+        "AlertSourceName": "AzureSQLDB-Production-SqlRunners-ICMConnector",
+        "IsCri": false
+      },
+      "SummarySection": {
+        "Symptoms": [
+          "Login success rate dropped below target, causing intermittent login failures to the database service."
+        ],
+        "Impacts": "",
+        "Tags": [
+          {
+            "TagName": "Login Failure",
+            "Score": 5
+          },
+          {
+            "TagName": "Replica Build",
+            "Score": 5
+          },
+          {
+            "TagName": "Database Availability",
+            "Score": 5
+          }
+        ],
+        "Description": "The incident involved a drop in login success rate below 99% for Azure SQL DB due to the primary replica being in build state. Multiple unplanned login outage windows occurred with errors indicating inability to find requested instances. No failovers, partition errors, or management operations were detected. The replica remained in an INBUILD state for over two and a half hours, causing routing failures until build completion. The issue was mitigated by cessation of failed logins and recovery of replica health.",
+        "CurrentStatus": [
+          "No failed logins detected and replica is healthy."
+        ],
+        "LatestUpdate": [
+          "No failed logins observed for nearly an hour and replica health confirmed.",
+          "Failed logins ceased, indicating mitigation of the issue."
+        ],
+        "Severity": "2",
+        "State": "MITIGATED",
+        "OutageUpdate": "",
+        "Causes": "Prolonged INBUILD state of the primary replica caused routing failures and login errors, consistent with the IsReplicaInBuild condition without explicit failover signals.",
+        "MitigationSolutions": "Mitigation was achieved by waiting for the replica build to complete, resulting in no further failed logins.",
+        "KustoQueries": [
+          "MonLogin | where TIMESTAMP >= datetime(2026-02-14 09:45:05) and TIMESTAMP <= datetime(2026-02-14 11:45:05) | where logical_server_name =~ \"sobeys-sql01\" and database_name =~ \"AlarmDB\" | where event == \"process_login_finish\" and is_success == 0 | extend ReadOnlyIntent = (login_flags / 2097152) % 2 | summarize FailureCount=count(), ReadOnlyIntentFailureCount=countif(ReadOnlyIntent==1), MachineNames=make_set(MachineName,10), Packages=make_set(package,100), Events=make_set(event,100), Errors=make_set(error,100), States=make_set(state,100) by TimeBucket=bin(TIMESTAMP,1m) | order by TimeBucket asc | limit 500",
+          "LoginOutages | where outageStartTime between (datetime(2026-02-14 09:45:05).. datetime(2026-02-14 11:45:05)) | where logical_server_name =~ \"sobeys-sql01\" and database_name =~ \"AlarmDB\" | where durationSeconds > 0 | order by outageStartTime asc | extend OutageReasonLevel3Json = parse_json(OutageReasonLevel3) | extend RequestId = tostring(OutageReasonLevel3Json.RequestId) | project outageStartTime, outageEndTime, durationSeconds, database_name, service_level_objective, OutageType, OutageReasonLevel1, OutageReasonLevel2, RequestId"
+        ],
+        "AcmCommunicationSummary": "",
+        "DescriptionEntriesSummary": "Initial investigation identified login failures caused by replica being in build state, with multiple unplanned outage windows. Subsequent updates confirmed no failed logins and healthy replica status, indicating resolution.",
+        "AITitle": "Login Failures Due to Replica Build State Affecting Database Availability",
+        "BriefSummary": "In the East US production environment, Azure SQL DB experienced login failures due to the primary replica being in an extended build state, causing routing errors and unplanned outages. The issue was mitigated by completion of the replica build, restoring login success rates and database availability without failovers or management operations.",
+        "SuggestedPrompts": [
+          "Show login failure timeline",
+          "List mitigation steps taken",
+          "Find root cause details"
+        ]
+      },
+      "SimilarIncidentSection": null,
+      "RootCauseMitigationSection": {
+        "Title": "[SLO: SQLDB_HS_Gen5_2]  [Sev-2 LoginFailureCause: IsReplicaInBuild] [ProdEus1a/AIMS://AZURE SQL DB/Availability] Sterling CRGW0001: Login success rate is below 99%",
+        "Category": "",
+        "Details": "",
+        "MitigationSteps": "no more failed logins"
+      },
+      "TroubleShootingSection": null,
+      "OutageSummarySection": null,
+      "DiscussionSection": [
+        {
+          "UpdatedDateTime": "2026-02-14T12:33:34.39Z",
+          "Content": "no more failed logins"
+        },
+        {
+          "UpdatedDateTime": "2026-02-14T11:49:39.79Z",
+          "Content": "No failed logins for almost an hour, also replica is healthy"
+        },
+        {
+          "UpdatedDateTime": "2026-02-14T11:26:06.06Z",
+          "Content": "Azure SRE Agent Attention: This response is a PREVIEW. Please provide feedback for improvement using this form: https://forms.office.com/r/xSe8tk3Pgb Investigation Variables Timestamp Variable Value 2026-02-14 09:45:05 IsReplicaInBuild 2026-02-14 09:45:05 &lt;START_TIME&gt; 2026-02-14 09:45:05 2026-02-14 11:45:05 &lt;END_TIME&gt; 2026-02-14 11:45:05 2026-02-14 09:55:05 &lt;APP_NAME&gt; Worker 2026-02-14 09:55:05 &lt;SERVER_NAME&gt; sobeys-sql01 2026-02-14 09:55:05 &lt;DB_NAME&gt; AlarmDB 2026-02-14 10:46:14 &lt;LOGICAL_DB_ID&gt; 91A25F54-BC9F-47BB-A060-3EABE10DC2D6 2026-02-14 10:46:14 &lt;PHYSICAL_DB_ID&gt; 1387FD08-E4C1-4E75-95EA-0D040D972EBD 2026-02-14 10:46:14 &lt;PARTITION_ID&gt; C756782F-35C8-48BF-918F-43D058C29E45 2026-02-14 10:46:14 &lt;CLUSTER_NAME&gt; tr38587.eastus1-a.worker.database.windows.net 2026-02-14 10:46:14 &lt;FAILOVER_GROUP_ID&gt; (empty) 2026-02-14 10:46:14 Snapshot State Ready; SLO=SQLDB_HS_Gen5_2; NodeName=_MN_65; sql_instance_name=bd3847b2da91 Timeline (all times UTC) | Timestamp | Kusto Tables | Events |\n|---|---|---|\n| 2026-02-14 09:45:05 | (window start) | START_TIME for analysis window |\n| 2026-02-14 09:54:00 | Step [3]: MonLogin | [Errors Begin] _DB_50: Error 40613, State 13 |\n| 2026-02-14 09:55:00 | Step [3]: MonLogin | [Errors Begin] _DB_50: Error 40613, State 126 |\n| 2026-02-14 09:55:00 | Step [3]: MonLogin | [Errors Begin] _DB_50: Error 40613, State 127 |\n| 2026-02-14 09:54:28 | Step [4]: LoginOutages | OutageStart 09:54:28 -&gt; 09:59:39 (310.30s)\nOutageType: Unplanned\nL1: Unknown\nL2: [\"xdbhost/40613/10 (CantFindRequestedInstance)\",\"sqlserver/40613/126 (LoginSessDb_DbNotFound)\",\"xdbhost/40613/13 (FailedToSendDuplicateData)\",\"sqlserver/40613/127 (LoginSessDb_DbUnavailable)\"] |\n| 2026-02-14 09:55:00 | Step [3]: MonLogin | [Errors End] _DB_50: Error 40613, State 13 |\n| 2026-02-14 09:56:00 | Step [3]: MonLogin | [Errors End] _DB_50: Error 40613, State 127 |\n| 2026-02-14 09:56:00 | Step [3]: MonLogin | [Errors Begin] _DB_50: Error 40613, State 10 |\n| 2026-02-14 09:56:00 | Step [3]: MonLogin | [Errors End] _DB_50: Error 40613, State 126 |\n| 2026-02-14 09:59:42 | Step [4]: LoginOutages | OutageStart 09:59:42 -&gt; 10:14:40 (898.48s)\nOutageType: Unplanned\nL1: Unknown\nL2: [\"xdbhost/40613/10 (CantFindRequestedInstance)\"] |\n| 2026-02-14 10:14:42 | Step [4]: LoginOutages | OutageStart 10:14:42 -&gt; 10:29:41 (898.75s)\nOutageType: Unplanned\nL1: Unknown\nL2: [\"xdbhost/40613/10 (CantFindRequestedInstance)\"] |\n| 2026-02-14 10:16:00 | Step [3]: MonLogin | [Errors Begin] _DB_50: Error 17830, State 102 |\n| 2026-02-14 10:29:42 | Step [4]: LoginOutages | OutageStart 10:29:42 -&gt; 10:44:41 (898.52s)\nOutageType: Unplanned\nL1: Unknown\nL2: [\"xdbhost/40613/10 (CantFindRequestedInstance)\"] |\n| 2026-02-14 11:00:00 | Step [3]: MonLogin | [Errors End] _DB_50: Error 40613, State 10 |\n| 2026-02-14 11:03:00 | Step [3]: MonLogin | [Errors Begin/End] _DB_50: Error 18456, State 5 |\n| 2026-02-14 11:45:05 | (window end) | END_TIME for analysis window | Similar Incidents (Step [2]) Incident ID Notes 744447794 40613/127 and 126; LoginOutages tied to UpdateLogicalDatabase; replica role churn; no failovers; unavailability during management ops 743026346 40613/127; HADR role transitions; multiple UpdateLogicalDatabase failures; no SF partition errors 735357906 40613/126 &amp; 127; warning on long partition reconfiguration; SwapPrimary succeeded later 735550156 40613/127 then 10/13/126; CAS KillProcess; UpdateLogicalDatabase failure; replica role transitions Overall knowledge: Past cases with sustained 40613 often correlate with transient replica role/state changes and/or management operations (UpdateLogicalDatabase). When failure cause indicates IsReplicaInBuild, prolonged INBUILD on the primary replica and gateway routing \"CantFindRequestedInstance\" are common; failover signals and FM health warnings may be absent. Conclusion Login failures 40613 transitioned 13 -&gt; 126/127 -&gt; 10, with three continuous Unplanned outage windows driven by \"CantFindRequestedInstance\" -&gt; consistent with IsReplicaInBuild. Snapshot shows database Ready; however, connector real-time notes primary replica INBUILD duration ~02:36:56, aligning with routing failures during build. No Service Fabric partition Error/Warning, no SqlFailovers/reconfiguration summaries, no quorum loss/unplaced/PLB events, no dumps, and no management operations logged for this DB within window. Pattern matches prior IsReplicaInBuild incidents where routing returns 40613/10 until build completes, without explicit failover signals. Mitigation (Experimental, currently being built out - Likely to be incorrect) Monitor until replica build completes; avoid management operations on the database during INBUILD to reduce churn. If INBUILD persists abnormally long, consider engaging ring operations to assess node health and placement; verify gateway routing health for this DB. Validate no concurrent SLO/UpdateLogicalDatabase activity; if present, defer or coordinate. If client impact remains high post-build, consider a targeted process recycle on involved gateway/XDBHost components per standard runbook. Execution Steps (detailed outputs) Step [0]: Resolve Kusto Datasource - KustoConnectionConfiguration Query: KustoConnectionConfiguration | where ClusterShortName == 'ProdEus1a' | project DataSource Results:\n| Timestamp | DataSource |\n|---|---|\n| 2026-02-14 11:06:20 | https://sqlazureeus12.kusto.windows.net:443 | Step [1]: General health info related to database - MonAnalyticsDBSnapshot Query: MonAnalyticsDBSnapshot\n| where TIMESTAMP &gt;= datetime(2026-02-14 09:45:05) and TIMESTAMP &lt;= datetime(2026-02-14 11:45:05)\n| where logical_server_name =~ \"sobeys-sql01\" and logical_database_name =~ \"AlarmDB\"\n| summarize arg_max(TIMESTAMP, *) by logical_database_name, logical_server_name\n| project TIMESTAMP, sql_instance_name, NodeName, state, service_level_objective, logical_database_id, physical_database_id, fabric_partition_id, tenant_ring_name, logical_resource_pool_id, fabric_service_uri, failover_group_id Results:\n| TIMESTAMP | sql_instance_name | NodeName | state | service_level_objective | logical_database_id | physical_database_id | fabric_partition_id | tenant_ring_name | logical_resource_pool_id | fabric_service_uri | failover_group_id |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n| 2026-02-14 10:46:14 | bd3847b2da91 | _MN_65 | Ready | SQLDB_HS_Gen5_2 | 91A25F54-BC9F-47BB-A060-3EABE10DC2D6 | 1387FD08-E4C1-4E75-95EA-0D040D972EBD | C756782F-35C8-48BF-918F-43D058C29E45 | tr38587.eastus1-a.worker.database.windows.net | | fabric:/Worker.Vldb.Storage/bd3847b2da91/SQL.UserDb/1387fd08-e4c1-4e75-95ea-0d040d972ebd | | Step [2]: Similar incidents search See the \"Similar Incidents\" table above for IDs and notes. Step [3]: Login failures - MonLogin Query: MonLogin\n| where TIMESTAMP &gt;= datetime(2026-02-14 09:45:05) and TIMESTAMP &lt;= datetime(2026-02-14 11:45:05)\n| where logical_server_name =~ \"sobeys-sql01\" and database_name =~ \"AlarmDB\"\n| where event == \"process_login_finish\" and is_success == 0\n| extend ReadOnlyIntent = (login_flags / 2097152) % 2\n| summarize FailureCount=count(), ReadOnlyIntentFailureCount=countif(ReadOnlyIntent==1), MachineNames=make_set(MachineName,10), Packages=make_set(package,100), Events=make_set(event,100), Errors=make_set(error,100), States=make_set(state,100) by TimeBucket=bin(TIMESTAMP,1m)\n| order by TimeBucket asc | limit 500 Results:\n(TimeBucket, FailureCount, ReadOnlyIntentFailureCount, MachineNames, Packages, Events, Errors, States)\n[Full, untruncated rows from tool output included below] 02/14/2026 09:54:00\t16\t0\t[\"DB00001E\"]\t[\"xdbhost\"]\t[\"process_login_finish\"]\t[40613]\t[13]\n02/14/2026 09:55:00\t73\t0\t[\"DB00001E\"]\t[\"sqlserver\",\"xdbhost\"]\t[\"process_login_finish\"]\t[40613]\t[126,127,13]\n02/14/2026 09:56:00\t84\t0\t[\"DB00001E\"]\t[\"sqlserver\",\"xdbhost\"]\t[\"process_login_finish\"]\t[40613]\t[126,10]\n02/14/2026 09:57:00\t71\t0\t[\"DB00001E\",\"GW00000S\"]\t[\"xdbhost\",\"xdbgateway\"]\t[\"process_login_finish\"]\t[40613,17830]\t[10,102]\n...\n02/14/2026 11:03:00\t1\t0\t[\"DB000009\"]\t[\"sqlserver\"]\t[\"process_login_finish\"]\t[18456]\t[5] Step [4]: Login Outages - LoginOutages Query: LoginOutages\n| where outageStartTime between (datetime(2026-02-14 09:45:05).. datetime(2026-02-14 11:45:05))\n| where logical_server_name =~ \"sobeys-sql01\" and database_name =~ \"AlarmDB\"\n| where durationSeconds &gt; 0\n| order by outageStartTime asc\n| extend OutageReasonLevel3Json = parse_json(OutageReasonLevel3)\n| extend RequestId = tostring(OutageReasonLevel3Json.RequestId)\n| project outageStartTime, outageEndTime, durationSeconds, database_name, service_level_objective, OutageType, OutageReasonLevel1, OutageReasonLevel2, RequestId Results:\n| outageStartTime | outageEndTime | durationSeconds | database_name | service_level_objective | OutageType | OutageReasonLevel1 | OutageReasonLevel2 | RequestId |\n|---|---|---|---|---|---|---|---|---|\n| 2026-02-14 09:54:28 | 2026-02-14 09:59:39 | 310.30 | alarmdb | SQLDB_HS_Gen5_2 | Unplanned | Unknown | [\"xdbhost/40613/10 (CantFindRequestedInstance)\",\"sqlserver/40613/126 (LoginSessDb_DbNotFound)\",\"xdbhost/40613/13 (FailedToSendDuplicateData)\",\"sqlserver/40613/127 (LoginSessDb_DbUnavailable)\"] | |\n| 2026-02-14 09:59:42 | 2026-02-14 10:14:40 | 898.48 | alarmdb | SQLDB_HS_Gen5_2 | Unplanned | Unknown | [\"xdbhost/40613/10 (CantFindRequestedInstance)\"] | |\n| 2026-02-14 10:14:42 | 2026-02-14 10:29:41 | 898.75 | alarmdb | SQLDB_HS_Gen5_2 | Unplanned | Unknown | [\"xdbhost/40613/10 (CantFindRequestedInstance)\"] | |\n| 2026-02-14 10:29:42 | 2026-02-14 10:44:41 | 898.52 | alarmdb | SQLDB_HS_Gen5_2 | Unplanned | Unknown | [\"xdbhost/40613/10 (CantFindRequestedInstance)\"] | | Step [5]: Replica states - MonDmDbHadrReplicaStates Query (abbrev.): MonDmDbHadrReplicaStates ... (full query per runbook) Results: Large dataset retrieved. No simplified transitions extracted in this preview; no critical role/db/sync state change events surfaced for timeline inclusion. Step [6]: Replica states - AlrWinFabHealthPartitionEvent Query: AlrWinFabHealthPartitionEvent ... (FM State warnings/errors) Results: ZERO_ROWS_RETURNED Step [7]: Unavailability Events - UnavailabilityEvents Query: per runbook (Worker app)\nResults: ZERO_ROWS_RETURNED Step [8]: HADR synchronization issues - MonDmDbHadrReplicaStates Query: per runbook (redo_queue_size&gt;0)\nResults: ZERO_ROWS_RETURNED Step [9]: ErrorLog - MonSQLSystemHealth Initial templated query failed to parse; re-ran simplified version\nResults (simplified): ZERO_ROWS_RETURNED within the scoped filters Step [10]: Errors on server - AlrSQLErrorsReported Results: ZERO_ROWS_RETURNED Step [11]: Failovers reconfiguration - SqlFailovers Results: ZERO_ROWS_RETURNED Step [12]: Failovers reconfiguration - WinFabLogs Results: ZERO_ROWS_RETURNED Step [13]: ChangeRoles - MonFabricApi Results: ZERO_ROWS_RETURNED Step [14]: UnplacedReplicas - WinFabLogs Results:\n| min_ETWTimestamp | max_ETWTimestamp | count |\n|---|---|---|\n| | | 0 | Step [15]: QuorumLoss - WinFabLogs Results: ZERO_ROWS_RETURNED Step [16]: PLB issues - WinFabLogs Results: ZERO_ROWS_RETURNED Step [17]: CAS actions - MonNonPiiAudit Results (excerpt):\n| originalEventTimestamp | username | request_action | request | parameters |\n|---|---|---|---|---|\n| 2026-02-14 09:47:28 | GenevaAutomationConnector-usnorth | KillProcess | ...KillProcess?fabricClusterName='tr49162.eastus1-a.worker.database.windows.net'&amp;nodeName='_DB_5'&amp;processName='NodeAgentHost.exe'... | |\n(Additional ExecuteQuery activities before window start; none directly referencing the target partition.) Step [18]: PlatformUpdates - WinFabLogs Results: ZERO_ROWS_RETURNED Step [19]: Dumps - MonSqlDumperActivity Results: ZERO_ROWS_RETURNED Step [20]: Management operations on database - MonManagementOperations Results: ZERO_ROWS_RETURNED Step [21]: Management operations on failover id - MonManagementOperations Condition not met (no failover_group_id); step skipped. Notes: Window selection derived from SourceTime 09:55:05 -&gt; Start minus 10 min, End +120 min per instructions. PartitionId used for fabric queries from MonAnalyticsDBSnapshot: C756782F-35C8-48BF-918F-43D058C29E45. Connector additional context indicated primary replica INBUILD duration ~02:36:56, which aligns with observed 40613/10 routing failures. Agent Name: azuresqlsreagent--6bbd0cef [Open thread on Saw] [Open thread on MSFT] Handler ID: Availability_LoginFailure_ResponsePlan"
+        }
+      ],
+      "PostmortemSection": null,
+      "BridgeInfoSection": {
+        "BridgeMetadata": []
+      },
+      "BridgeChunkSummarySection": [],
+      "PartnerKnowledgeSection": {
+        "AggregatedPartnerKnowledges": {
+          "FcmAISummary": [
+            {
+              "EntityId": "747870160",
+              "EntityIdTypeName": "IncidentId",
+              "Metadata": {
+                "IncidentId": "747870160",
+                "Title": "Investigate related changes: ",
+                "Message": "",
+                "Link": "https://portal.microsofticm.com/imp/v5/incidents/details/747870160/troubleshooting?tab=changeData",
+                "LinkText": "Investigate changes in IcM",
+                "Destination": 1,
+                "ExpiryTime": "2026-02-14T11:06:08.8902159Z"
+              },
+              "SanitizedText": ""
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "OutageTimeline": {}
+}

@@ -1,0 +1,98 @@
+apiVersion: runbook/v0
+meta:
+  name: alias-db-failure-alert-tree
+  kind: mitigation
+  description: "Diagnose and mitigate Gateway login failures caused by Alias DB connectivity issues."
+  source:
+    file: "C:\\One\\TSG-SQL-DB-Connectivity\\TSG\\alias\\alias-db-failure-alert.md"
+    compiled_at: "2026-02-14T20:00:00Z"
+    model: manual
+  scenarios:
+    no-failures: "testdata/scenarios/alias-db-no-failures"
+    with-failures: "testdata/scenarios/alias-db-with-failures"
+  inputs:
+    cluster_name:
+      from: icm.title
+      pattern: "(cr[\\w.-]+)"
+      description: "Cluster name from incident title"
+    environment:
+      from: icm.occuringLocation.instance
+      description: "XTS environment"
+  xts:
+    environment: "{{ .environment }}"
+tree:
+  - step:
+      id: assess_alias_db_failures
+      type: xts
+      title: "Assess Gateway failures connecting to Alias DB"
+      xts:
+        mode: query
+        query_type: kusto
+        query: |
+          MonRedirector
+          | where originalEventTimestamp > ago(30m)
+          | where event == "sql_alias_odbc_failure"
+          | where AppTypeName =~ 'gateway'
+          | where ClusterName =~ "{{ .cluster_name }}"
+          | summarize FailureCount = count(),
+                      GatewayNodesWithFailure = strcat_array(make_set(NodeName), ',')
+            by AppTypeName, ClusterName
+      capture:
+        failure_count: row_count
+        gateway_nodes: "$.data[0].GatewayNodesWithFailure"
+      outcomes:
+        - when: '{{ eq .failure_count "0" }}'
+          state: no_action
+          recommendation: |
+            No significant Alias DB connectivity failures detected in the last 30 minutes.
+            Treat as transient or monitor.
+    branches:
+      - condition: '{{ ne .failure_count "0" }}'
+        label: "Failures detected — investigate"
+        steps:
+          - step:
+              id: assess_login_impact
+              type: xts
+              title: "Assess login impact from Alias DB failures"
+              xts:
+                mode: query
+                query_type: kusto
+                query: |
+                  MonLogin
+                  | where TIMESTAMP > ago(1h)
+                  | where event == "process_login_finish"
+                  | where ClusterName =~ "{{ .cluster_name }}"
+                  | where error == 40613 and state == 4
+                  | summarize count() by bin(originalEventTimestamp, 3m)
+          - step:
+              id: check_alias_db_health
+              type: manual
+              title: "Check health of Alias DB replicas"
+              instructions: |
+                Open XTS and navigate to SqlAliasCacheReplicas.xts.
+                Filter by the control/worker ring relevant to the incident.
+                Verify all replicas are healthy.
+                If unhealthy, check MonSqlSystemHealth filtered by Alias DB AppName.
+          - step:
+              id: investigate_gateway_issues
+              type: manual
+              title: "Investigate Gateway certificate or DNS issues"
+              instructions: |
+                If Alias DB is healthy, investigate gateway-side causes:
+                - Check Service Fabric Explorer for ongoing deployments (certificate rollover).
+                - JIT to a gateway node and test DNS resolution of MN nodes.
+                If DNS fails, escalate to Azure DNS team.
+          - step:
+              id: restart_gateway
+              type: manual
+              title: "Restart Gateway process (last resort)"
+              instructions: |
+                IMPORTANT: Do not restart more than two gateways simultaneously.
+                CAS command (manual execution required):
+                Get-FabricNode -NodeName GW.47 -NodeClusterName {{ .cluster_name }} |
+                  Kill-Process -ProcessName xdbgatewaymain.exe -ApplicationNameUri fabric:/Gateway
+              outcomes:
+                - state: resolved
+                  recommendation: "Gateway restarted. Monitor for recovery."
+                - state: escalated
+                  recommendation: "Escalate to Azure SQL DB/Gateway experts."

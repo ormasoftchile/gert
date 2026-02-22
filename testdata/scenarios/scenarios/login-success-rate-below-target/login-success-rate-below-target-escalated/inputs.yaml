@@ -1,0 +1,4 @@
+database_name: "db_bcprodweu_t00163426_20251211_07011531_7b2d"
+environment: "Prodfranceca"
+login_failure_cause: "UpdateSloInProgress_40613_127_target"
+server_name: "spartan-srv-fra-bcprodweu-5f0995b6c9e6"

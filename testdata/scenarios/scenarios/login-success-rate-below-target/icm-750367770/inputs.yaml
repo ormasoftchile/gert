@@ -1,0 +1,8 @@
+# ICM 750367770  LoginFailureCause: LoginErrorsFound_40613_129
+# State: MITIGATED | Severity: Sev-2
+# Region: ProdWeu1a (West Europe) | Team: Socrates (Hyperscale)
+# Date: 2026-02-19T16:09:28Z | Mitigation: Blocklisted app in HPDB
+server_name: "ugodmd5h9w"
+database_name: "Files"
+environment: "ProdWeu1a"
+login_failure_cause: "LoginErrorsFound_40613_129"

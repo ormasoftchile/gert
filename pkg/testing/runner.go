@@ -236,12 +236,20 @@ func (r *Runner) executeReplay(runbookPath string, originalRB *schema.Runbook, s
 	engine.XTSScenario = xtsScenario
 	engine.RunbookPath = runbookPath
 
+	// Discover project context for package resolution
+	proj, _ := schema.DiscoverProject(runbookPath)
+	if proj == nil {
+		proj = schema.FallbackProject(filepath.Dir(runbookPath))
+	}
+	engine.Project = proj
+
 	// Load tool definitions if the runbook declares tools:
 	if len(rb.Tools) > 0 {
 		tm := tools.NewManager(executor, engine.Redact)
 		baseDir := filepath.Dir(runbookPath)
 		for _, name := range rb.Tools {
-			if err := tm.Load(name, filepath.Join("tools", name+".tool.yaml"), baseDir); err != nil {
+			resolved := schema.ResolveToolPathCompat(proj, rb, name, baseDir)
+			if err := tm.Load(name, resolved, ""); err != nil {
 				fmt.Fprintf(os.Stderr, "test: warning: failed to load tool %q: %v\n", name, err)
 			}
 		}

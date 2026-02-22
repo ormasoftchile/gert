@@ -1,0 +1,12 @@
+apiVersion: runbook/v0
+meta:
+  name: xts-missing-meta
+  description: XTS step without meta.xts — should fail domain validation.
+steps:
+  - id: bad_step
+    type: xts
+    title: Missing Meta XTS
+    xts:
+      mode: query
+      query_type: kusto
+      query: "MonLogin | take 1"

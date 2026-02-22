@@ -1,0 +1,18 @@
+{
+  "success": true,
+  "rowCount": 1,
+  "columns": ["AppTypeName", "ClusterName", "FailureCount", "FailureStartTime", "FailureEndTime", "GatewayNodesWithFailure"],
+  "data": [
+    {
+      "AppTypeName": "gateway",
+      "ClusterName": "CRGW0001",
+      "FailureCount": 47,
+      "FailureStartTime": "2026-02-14T09:55:05Z",
+      "FailureEndTime": "2026-02-14T10:12:33Z",
+      "GatewayNodesWithFailure": "GW.12,GW.34,GW.47"
+    }
+  ],
+  "metadata": {
+    "executedAt": "2026-02-14T10:15:00Z"
+  }
+}

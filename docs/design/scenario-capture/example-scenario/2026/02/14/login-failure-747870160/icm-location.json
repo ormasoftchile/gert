@@ -1,0 +1,22 @@
+{
+  "ClassifiedLocation": [
+    {
+      "Region": "East US",
+      "ArmRegion": "eastus",
+      "RegionId": "useast",
+      "AvailabilityZone": "",
+      "DataCenter": "",
+      "Cluster": "",
+      "Node": "",
+      "OriginalValue": "east us",
+      "LocationClassifier": "RegionClusterInOccurringDatacenter",
+      "Source": "ARG_Region",
+      "LocationConfidenceLevel": "99",
+      "ImpactedRegions": ["East US"],
+      "LocationId": "ms-loc://az/public/eastus",
+      "Cloud": "Public",
+      "CloudProvider": "Azure",
+      "ClassifiedTime": "2026-02-14T12:39:32"
+    }
+  ]
+}

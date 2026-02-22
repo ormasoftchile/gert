@@ -1,0 +1,80 @@
+apiVersion: runbook/v0
+tools:
+  xts: ../testdata/tools/xts.tool.yaml
+meta:
+    name: executing-a-cas-command
+    kind: composable
+    description: General instructions for preparing context and executing CAS (Cluster Administrative Service) commands using XTS and the DS Consolidated Console.
+    vars:
+        app_name: ""
+        cluster: ""
+        database_name: ""
+        environment: ""
+        fabric_cluster_name: ""
+        instance_name: ""
+        logical_server_name: ""
+        node_name: ""
+        tenant_ring_name: ""
+    xts:
+        environment: ""
+steps:
+    - id: open_ds_consolidated_console
+      type: manual
+      title: Open DS Consolidated Console from XTS
+      instructions: |
+        From your SAW:
+        - Open XTS.
+        - In the Environments tab, right-click the environment where the target database exists.
+        - Click "Launch DS Consolidated Console".
+
+        This ensures the environment and cluster/region are set automatically.
+      required_evidence:
+        - kind: checklist
+          name: ds_console_prerequisites
+          items:
+            - XTS opened
+            - Correct environment selected
+            - DS Consolidated Console launched
+    - id: open_sterling_servers_databases_view
+      type: tool
+      title: Open sterling servers and databases view
+      tool:
+        name: xts
+        action: view
+        args:
+          cluster: '{{ .environment }}'
+          file: sterling/servers and databases.xts
+      capture:
+        app_name: app_name
+        database_name: database_name
+        logical_server_name: logical_server_name
+        node_name: node_name
+        tenant_ring_name: tenant_ring_name
+    - id: select_database_and_open_cas_commands
+      type: manual
+      title: Select database and locate CAS commands
+      instructions: |
+        In the "sterling servers and databases" view:
+        - Select the target database in the "Databases for..." pane.
+        - Double-click the partition ID in the "Partition info for..." pane.
+        - In the Database Replicas view, click the CAS commands tab to the right of the "Step 4: WinFab Replica state" pane.
+
+        From the CAS commands tab, select a command to execute or copy a pre-formed call (e.g., Get-FabricNode) needed for another command.
+      required_evidence:
+        - kind: checklist
+          name: cas_commands_context
+          items:
+            - Target database selected
+            - Partition ID opened
+            - CAS commands tab opened
+    - id: execute_cas_command
+      type: manual
+      title: Execute CAS command in DS Consolidated Console
+      instructions: |
+        Paste the selected or pre-formed CAS command into the DS Consolidated Console window opened earlier and execute it.
+
+        TODO: Validate the command is safe and appropriate for the incident context. Many CAS commands are destructive or high impact (e.g., killing an instance, DBCC operations) and require human judgment and approvals outside this runbook.
+      required_evidence:
+        - kind: text
+          name: cas_command_executed
+          items: []

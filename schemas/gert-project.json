@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ormasoftchile/gert/schemas/gert-project.json",
+  "title": "Gert Project Manifest",
+  "description": "Schema for gert.yaml — project identity, dependencies, path conventions, runtime config, and tool exports.",
+  "type": "object",
+  "required": ["name"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Package identity. Used as namespace prefix when other packages reference this package's tools.",
+      "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$"
+    },
+    "paths": {
+      "type": "object",
+      "description": "Override convention directories. Defaults: tools → 'tools', runbooks → 'runbooks'.",
+      "additionalProperties": false,
+      "properties": {
+        "tools": {
+          "type": "string",
+          "description": "Directory containing tool definitions (default: 'tools')."
+        },
+        "runbooks": {
+          "type": "string",
+          "description": "Directory containing runbook files (default: 'runbooks')."
+        }
+      }
+    },
+    "require": {
+      "type": "object",
+      "description": "External package dependencies. Maps package name to local path (relative to this gert.yaml).",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "exports": {
+      "type": "object",
+      "description": "Virtual aliases exposed to consumers of this package.",
+      "additionalProperties": false,
+      "properties": {
+        "tools": {
+          "type": "object",
+          "description": "Maps logical tool names to paths within the tools directory (without .tool.yaml extension).",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "description": "Runtime configuration (replaces .gert/config.yaml).",
+      "additionalProperties": false,
+      "properties": {
+        "providers": {
+          "type": "object",
+          "description": "External provider configurations.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "binary": {
+                "type": "string",
+                "description": "Provider binary name or path."
+              },
+              "path": {
+                "type": "string",
+                "description": "Path to provider configuration file."
+              },
+              "config": {
+                "type": "string",
+                "description": "Path to provider-specific configuration file."
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+# Resolved inputs for scenario: login-failure-747870160
+# Source: ICM custom fields + occuringLocation + title parsing
+
+# From ICM direct fields
+environment: ProdEus1a                          # icm.occuringLocation.instance
+impact_start_time: "2026-02-14T09:55:05Z"       # icm.impactStartTime
+severity: 2                                     # icm.severity
+region: East US                                 # icm.location.Region
+
+# From ICM custom fields
+server_name: sobeys-sql01                       # icm.customFields.ServerName
+database_name: AlarmDB                          # icm.customFields.DatabaseName
+app_name: d32e1b0ec027                          # icm.customFields.AppName
+tenant_ring: tr48699.eastus1-a.worker.database.windows.net  # icm.customFields.PrimaryTenantRing
+node_name: _DB_48                               # icm.customFields.PrimaryNodeName
+slo: SQLDB_HS_Gen5_2                            # icm.customFields.SLO
+
+# Derived from title parsing
+cluster_name: CRGW0001                          # parsed from title: "Sterling CRGW0001:"
+routing_id: "AIMS://AZURE SQL DB/Availability"  # icm.routingId
+monitor_name: LoginFailure                      # icm.monitorName

@@ -1,0 +1,7 @@
+# ICM 748920292 — LoginFailureCause: IsSqlPartitionInErrorState
+# State: MITIGATED | Severity: 2
+# Region: Produseue2a
+server_name: "compperf-gen10-prod-default"
+database_name: "HS_PRMS_192"
+environment: "Produseue2a"
+login_failure_cause: "IsSqlPartitionInErrorState"
