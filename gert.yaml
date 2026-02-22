@@ -1,0 +1,15 @@
+name: gert-tools
+
+paths:
+  tools: tools
+  # runbooks: runbooks  # default
+
+require:
+  gert-xts: ../gert-xts
+  gert-icm: ../gert-icm
+
+config:
+  providers:
+    icm:
+      binary: gert-icm-provider
+      config: configs/icm.provider.yaml

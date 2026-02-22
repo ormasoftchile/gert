@@ -1,8 +1,4 @@
-apiVersion: runbook/v0
-
-# Import reusable runbooks by alias
-imports:
-    dns-check: ../dns-check/dns-check.runbook.yaml
+apiVersion: runbook/v1
 
 tools:
     - curl

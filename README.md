@@ -116,6 +116,46 @@ steps:
       roles: ["DRI"]
 ```
 
+### Imports and tools declaration styles
+
+`gert` supports both convention-first shorthand and explicit verbose forms.
+
+Minimal (convention-based):
+
+```yaml
+imports: dns-check
+tools: [curl, nslookup]
+```
+
+Equivalent expanded forms:
+
+```yaml
+imports:
+  dns-check: ../dns-check/dns-check.runbook.yaml
+
+tools:
+  - curl
+  - nslookup
+```
+
+Verbose overrides (when defaults are not enough):
+
+```yaml
+imports:
+  - name: dns-check
+    path: ../shared/dns-check.runbook.yaml
+
+tools:
+  curl:
+    path: custom/tools/curl.tool.yaml
+  nslookup: tools/nslookup.tool.yaml
+```
+
+Notes:
+- Internally, all forms normalize to canonical `imports` and `tools`.
+- If a tool path is not provided, `gert` resolves it as `tools/<name>.tool.yaml`.
+- If an import path is not provided, `gert` resolves it as `../<alias>/<alias>.runbook.yaml`.
+
 ## Architecture
 
 ```

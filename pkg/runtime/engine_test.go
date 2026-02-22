@@ -246,3 +246,27 @@ func TestDryRunGovernanceReported(t *testing.T) {
 		t.Fatal("expected governance error in dry-run mode")
 	}
 }
+
+func TestNormalizeRunbookPathRef(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "already runbook yaml", in: "a/b/c.runbook.yaml", want: "a/b/c.runbook.yaml"},
+		{name: "already runbook yml", in: "a/b/c.runbook.yml", want: "a/b/c.runbook.yml"},
+		{name: "runbook no ext", in: "a/b/c.runbook", want: "a/b/c.runbook.yaml"},
+		{name: "plain path no ext", in: "a/b/c", want: "a/b/c.runbook.yaml"},
+		{name: "yaml keep", in: "a/b/c.yaml", want: "a/b/c.yaml"},
+		{name: "yml keep", in: "a/b/c.yml", want: "a/b/c.yml"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizeRunbookPathRef(tc.in)
+			if got != tc.want {
+				t.Fatalf("normalizeRunbookPathRef(%q)=%q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}

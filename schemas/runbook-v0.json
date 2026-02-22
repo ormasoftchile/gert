@@ -487,23 +487,70 @@
           ]
         },
         "imports": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": "object"
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object"
+                  }
+                ]
+              }
+            }
+          ]
         },
         "tools": {
-<<<<<<< Updated upstream
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-=======
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": "object"
->>>>>>> Stashed changes
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "object"
+                  }
+                ]
+              }
+            }
+          ]
         },
         "meta": {
           "$ref": "#/$defs/Meta"

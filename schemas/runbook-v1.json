@@ -486,17 +486,12 @@
             "runbook/v1"
           ]
         },
-        "imports": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": "object"
-        },
         "tools": {
+          "type": "array",
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "description": "Tool references: unqualified (local) or qualified (package/name)"
         },
         "meta": {
           "$ref": "#/$defs/Meta"

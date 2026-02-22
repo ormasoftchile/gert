@@ -1,0 +1,5 @@
+name: gert-test-fixtures
+
+paths:
+  runbooks: .
+  tools: ../../tools

@@ -324,6 +324,16 @@ func (s *Server) handleExecStart(msg *Message) {
 		engine.XTSScenario = xtsScenario
 	}
 
+	// Discover project context for package resolution
+	var proj *schema.Project
+	if params.Runbook != "" {
+		proj, _ = schema.DiscoverProject(params.Runbook)
+	}
+	if proj == nil && params.Runbook != "" {
+		proj = schema.FallbackProject(filepath.Dir(params.Runbook))
+	}
+	engine.Project = proj
+
 	// Load tool definitions if the runbook declares tools:
 	if len(rb.Tools) > 0 {
 		tm := tools.NewManager(executor, engine.Redact)
@@ -332,7 +342,8 @@ func (s *Server) handleExecStart(msg *Message) {
 			baseDir = filepath.Dir(params.Runbook)
 		}
 		for _, name := range rb.Tools {
-			if err := tm.Load(name, filepath.Join("tools", name+".tool.yaml"), baseDir); err != nil {
+			resolved := schema.ResolveToolPathCompat(proj, rb, name, baseDir)
+			if err := tm.Load(name, resolved, ""); err != nil {
 				fmt.Fprintf(os.Stderr, "serve: WARNING failed to load tool %q: %v\n", name, err)
 			}
 		}
@@ -1068,7 +1079,7 @@ func (s *Server) enterInvoke(msg *Message, step schema.Step) error {
 		return fmt.Errorf("invoke step %q missing invoke config", step.ID)
 	}
 
-	// Resolve the runbook alias → file path via imports
+	// Resolve the runbook reference: imports → project → relative path
 	resolvedFile := step.Invoke.Runbook
 	if s.runbook.Imports != nil {
 		if path, ok := s.runbook.Imports[resolvedFile]; ok {
@@ -1079,8 +1090,14 @@ func (s *Server) enterInvoke(msg *Message, step schema.Step) error {
 	// Resolve template vars in the file path
 	resolvedFile = s.engine.ResolveTemplatePublic(resolvedFile)
 
-	// Resolve relative to the parent runbook's directory
-	if s.engine.RunbookPath != "" && !filepath.IsAbs(resolvedFile) {
+	// Try project-aware resolution, then fall back to relative path
+	if s.engine.Project != nil && !filepath.IsAbs(resolvedFile) {
+		if projResolved, err := s.engine.Project.ResolveRunbookRef(resolvedFile); err == nil {
+			resolvedFile = projResolved
+		} else if s.engine.RunbookPath != "" {
+			resolvedFile = filepath.Join(filepath.Dir(s.engine.RunbookPath), resolvedFile)
+		}
+	} else if s.engine.RunbookPath != "" && !filepath.IsAbs(resolvedFile) {
 		resolvedFile = filepath.Join(filepath.Dir(s.engine.RunbookPath), resolvedFile)
 	}
 
@@ -1123,12 +1140,16 @@ func (s *Server) enterInvoke(msg *Message, step schema.Step) error {
 	childEngine.ChainDepth = depth
 	childEngine.ParentRunID = s.engine.State.RunID
 
+	// Inherit project context from parent
+	childEngine.Project = s.engine.Project
+
 	// Load tool definitions for child runbook if it declares tools:
 	if len(childRB.Tools) > 0 {
 		tm := tools.NewManager(s.engine.Executor, childEngine.Redact)
 		childBaseDir := filepath.Dir(resolvedFile)
 		for _, name := range childRB.Tools {
-			if err := tm.Load(name, filepath.Join("tools", name+".tool.yaml"), childBaseDir); err != nil {
+			resolved := schema.ResolveToolPathCompat(s.engine.Project, childRB, name, childBaseDir)
+			if err := tm.Load(name, resolved, ""); err != nil {
 				fmt.Fprintf(os.Stderr, "serve: WARNING failed to load child tool %q: %v\n", name, err)
 			}
 		}

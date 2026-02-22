@@ -1,4 +1,4 @@
-apiVersion: runbook/v0
+apiVersion: runbook/v1
 
 tools:
     - nslookup
@@ -26,11 +26,11 @@ tree:
         capture:
             dns_output: stdout
         outcomes:
-            - when: '{{ eq .dns_output "" }}'
+            - when: 'dns_output == ""'
               state: escalated
               recommendation: nslookup returned no output for {{ .hostname }}. Command may have failed.
       branches:
-        - condition: '{{ ne .dns_output "" }}'
+        - condition: 'dns_output != ""'
           label: DNS returned output
           steps:
             # Step 2: Check if resolution succeeded (contains "Name:" and "Address")
