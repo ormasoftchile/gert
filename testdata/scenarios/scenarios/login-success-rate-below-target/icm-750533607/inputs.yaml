@@ -1,0 +1,9 @@
+# ICM 750533607  LoginFailureCause: UpdateSloInProgress_40613_127_target
+# State: ACTIVE | Severity: Sev-3
+# Region: Prodfranceca (France Central)
+# Date: 2026-02-19T23:31:26Z | Impact: 2026-02-19T22:15:57Z
+# Team: GeoDR
+server_name: "spartan-srv-fra-bcprodweu-5f0995b6c9e6"
+database_name: "db_bcprodweu_t00163426_20251211_07011531_7b2d"
+environment: "Prodfranceca"
+login_failure_cause: "UpdateSloInProgress_40613_127_target"

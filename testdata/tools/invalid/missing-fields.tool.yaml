@@ -1,0 +1,10 @@
+# Invalid: missing meta.binary, no actions, bad transport mode
+apiVersion: tool/v0
+
+meta:
+  name: broken-tool
+
+transport:
+  mode: invalid-mode
+
+actions: {}

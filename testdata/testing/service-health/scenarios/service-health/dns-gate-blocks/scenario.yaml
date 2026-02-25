@@ -1,0 +1,25 @@
+# DNS fails → child escalates → gate stops parent before HTTP check
+commands:
+  # dns-check child: nslookup returns error output
+  - argv: ["nslookup", "nonexistent.invalid.test"]
+    stdout: |
+      Server:  resolver1.example.com
+      Address:  10.0.0.1
+
+      *** resolver1.example.com can't find nonexistent.invalid.test: Non-existent domain
+    stderr: ""
+    exit_code: 0
+
+  # Parent: curl should NOT be called (gate stops execution)
+  # Including it with a failure to verify it's never reached
+  - argv: ["curl", "-s", "-I", "https://nonexistent.invalid.test"]
+    stdout: ""
+    stderr: "curl: (6) Could not resolve host: nonexistent.invalid.test"
+    exit_code: 6
+
+evidence:
+  # Child step: DRI confirms DNS did not resolve
+  check_resolution:
+    dns_resolved:
+      kind: text
+      value: "no"

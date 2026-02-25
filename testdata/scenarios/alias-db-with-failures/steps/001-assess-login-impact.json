@@ -1,0 +1,15 @@
+{
+  "success": true,
+  "rowCount": 5,
+  "columns": ["originalEventTimestamp", "count_"],
+  "data": [
+    {"originalEventTimestamp": "2026-02-14T09:57:00Z", "count_": 12},
+    {"originalEventTimestamp": "2026-02-14T10:00:00Z", "count_": 8},
+    {"originalEventTimestamp": "2026-02-14T10:03:00Z", "count_": 15},
+    {"originalEventTimestamp": "2026-02-14T10:06:00Z", "count_": 9},
+    {"originalEventTimestamp": "2026-02-14T10:09:00Z", "count_": 3}
+  ],
+  "metadata": {
+    "executedAt": "2026-02-14T10:15:05Z"
+  }
+}

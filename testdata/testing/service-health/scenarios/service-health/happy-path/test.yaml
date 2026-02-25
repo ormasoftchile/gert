@@ -1,0 +1,21 @@
+# DNS resolves, HTTP 200 → outcome resolved
+description: "Happy path — DNS resolves, HTTP 200, service healthy"
+expected_outcome: resolved
+expected_captures:
+  dns_output: |-
+    Server:  resolver1.example.com
+    Address:  10.0.0.1
+
+    Name:    github.com
+    Address:  140.82.112.3
+  http_response: "HTTP/2 200\r\ncontent-type: text/html"
+must_reach:
+  - dns_gate
+  - check_http
+  - service_healthy
+must_not_reach:
+  - http_failed
+tags:
+  - invoke
+  - gate
+  - happy-path

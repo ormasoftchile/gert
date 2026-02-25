@@ -1,0 +1,38 @@
+{
+  "scopeName": "runbook.injection",
+  "injectionSelector": "L:source.yaml",
+  "patterns": [
+    {
+      "comment": "Template variables anywhere in YAML values",
+      "match": "\\{\\{\\s*[^}]+\\}\\}",
+      "name": "variable.other.template.gert"
+    },
+    {
+      "comment": "Expr-lang condition in condition/when fields",
+      "begin": "(condition|when)(:)\\s*'",
+      "beginCaptures": {
+        "1": { "name": "entity.name.tag.yaml" },
+        "2": { "name": "punctuation.separator.key-value.yaml" }
+      },
+      "end": "'",
+      "patterns": [
+        {
+          "match": "\\b(==|!=|&&|\\|\\||!|in|startsWith|endsWith|contains|not|and|or)\\b",
+          "name": "keyword.operator.expression.gert"
+        },
+        {
+          "match": "\"[^\"]*\"",
+          "name": "string.quoted.double.expression.gert"
+        },
+        {
+          "match": "\\b[a-z_][a-z_0-9]*\\b",
+          "name": "variable.other.expression.gert"
+        },
+        {
+          "match": "\\[|\\]",
+          "name": "punctuation.definition.array.gert"
+        }
+      ]
+    }
+  ]
+}

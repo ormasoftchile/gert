@@ -1,0 +1,7 @@
+# ICM 749270451 — LoginFailureCause: IsGWProxyThrottledTCPTimeoutToBackend_SingleSqlInstanceAffected
+# State: MITIGATED | Severity: Sev-3
+# Region: ProdEus2a
+server_name: "eon48290-gsp-dev-test-sql-server"
+database_name: "dev-aggregate-reporting-database-1600"
+environment: "ProdEus2a"
+login_failure_cause: "IsGWProxyThrottledTCPTimeoutToBackend_SingleSqlInstanceAffected"

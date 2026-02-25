@@ -1,0 +1,9 @@
+{
+  "success": true,
+  "rowCount": 0,
+  "columns": ["AppTypeName", "error", "state", "lookup_state", "database_name", "logical_server_name", "ClusterName", "AppName", "fabric_instance_uri", "fabric_alias_uri", "fabric_node_name"],
+  "data": [],
+  "metadata": {
+    "executedAt": "2026-02-15T10:01:00Z"
+  }
+}

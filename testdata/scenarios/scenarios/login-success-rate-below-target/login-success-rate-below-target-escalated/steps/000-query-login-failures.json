@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "rowCount": 1,
+  "columns": [
+    "AppTypeName",
+    "error",
+    "state",
+    "FailureCount"
+  ],
+  "data": [
+    {
+      "AppTypeName": "Worker.ISO",
+      "error": 40613,
+      "state": 127,
+      "FailureCount": 130
+    }
+  ],
+  "metadata": {
+    "executedAt": "2026-02-20T00:11:52.524606Z"
+  }
+}

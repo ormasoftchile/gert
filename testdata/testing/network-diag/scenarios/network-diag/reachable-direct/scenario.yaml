@@ -1,0 +1,29 @@
+commands:
+  - argv: ["ping", "-n", "2", "github.com"]
+    stdout: |
+      Pinging github.com [140.82.112.3] with 32 bytes of data:
+      Reply from 140.82.112.3: bytes=32 time=12ms TTL=55
+      Reply from 140.82.112.3: bytes=32 time=11ms TTL=55
+    stderr: ""
+    exit_code: 0
+
+  - argv: ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "https://github.com:443"]
+    stdout: "200"
+    stderr: ""
+    exit_code: 0
+
+  - argv: ["nslookup", "github.com"]
+    stdout: |
+      Server:  resolver1.example.com
+      Address:  10.0.0.1
+
+      Name:    github.com
+      Address:  140.82.112.3
+    stderr: ""
+    exit_code: 0
+
+evidence:
+  assess_connectivity:
+    connectivity_status:
+      kind: text
+      value: "reachable_direct"

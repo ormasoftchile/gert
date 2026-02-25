@@ -1,0 +1,15 @@
+# DNS resolves (gate passes), but HTTP 503 → escalate
+description: "DNS OK but HTTP 503 — gate passes, HTTP check escalates"
+expected_outcome: escalated
+expected_captures:
+  http_response: "HTTP/2 503\r\ncontent-type: text/html"
+must_reach:
+  - dns_gate
+  - check_http
+  - http_failed
+must_not_reach:
+  - service_healthy
+tags:
+  - invoke
+  - gate
+  - http-failure

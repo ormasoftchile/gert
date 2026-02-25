@@ -1,0 +1,69 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# Node.js / TypeScript (VS Code extension)
+node_modules/
+dist/
+build/
+*.js.map
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+
+# Runtime artifacts
+.runbook/
+
+# Temp / scratch
+.temp/
+
+# Build output
+bin/
+
+# Local tool / agent scaffolding
+.gert/
+.playwright-mcp/
+.specify/
+.squad/
+.squad-templates/
+
+# Compile review scratch
+compile-review/
+
+# Config files (local)
+configs/
+
+# Design docs (local)
+docs/
+
+# Paste scratch files
+paste-*
+
+# Runbooks (local scratch, not part of the engine)
+*.runbook.yaml
+
+# Debug artifacts
+debug-*

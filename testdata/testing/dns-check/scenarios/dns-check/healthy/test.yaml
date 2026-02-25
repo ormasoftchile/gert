@@ -1,0 +1,14 @@
+# DNS resolves → DRI selects yes → outcome resolved
+expected_outcome: resolved
+expected_captures:
+  dns_resolved: "yes"
+must_reach:
+  - resolve_dns
+  - check_resolution
+  - dns_healthy
+must_not_reach:
+  - dns_failed
+description: "Healthy DNS — github.com resolves, DRI confirms"
+tags:
+  - choices
+  - branching

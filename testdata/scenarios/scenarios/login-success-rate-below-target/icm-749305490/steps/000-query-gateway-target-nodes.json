@@ -1,0 +1,539 @@
+{
+  "success": true,
+  "rowCount": 105,
+  "columns": [
+    "NodeName",
+    "originalEventTimestamp",
+    "FailCount"
+  ],
+  "data": [
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:46:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:44:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:42:00",
+      "FailCount": 5
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:38:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:36:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:34:00",
+      "FailCount": 5
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:32:00",
+      "FailCount": 4
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:28:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T16:26:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T16:24:00",
+      "FailCount": 5
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:24:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T16:22:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:22:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T16:20:00",
+      "FailCount": 4
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T16:18:00",
+      "FailCount": 4
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:18:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:16:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T16:16:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T16:14:00",
+      "FailCount": 5
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T16:12:00",
+      "FailCount": 5
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:12:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T16:10:00",
+      "FailCount": 4
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:10:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T16:08:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T16:08:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T16:06:00",
+      "FailCount": 3
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T16:02:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:56:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:54:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:52:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T15:52:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:50:00",
+      "FailCount": 5
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:46:00",
+      "FailCount": 4
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T15:46:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:44:00",
+      "FailCount": 4
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:42:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T15:42:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T15:38:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T15:36:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:34:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:32:00",
+      "FailCount": 4
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:30:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:28:00",
+      "FailCount": 3
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T15:26:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T15:24:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T15:22:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:18:00",
+      "FailCount": 3
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:16:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T15:14:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T15:12:00",
+      "FailCount": 7
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:12:00",
+      "FailCount": 4
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T15:10:00",
+      "FailCount": 5
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:10:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:08:00",
+      "FailCount": 3
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:06:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:02:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T15:00:00",
+      "FailCount": 6
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:58:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:56:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:54:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:52:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:46:00",
+      "FailCount": 3
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:44:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:42:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:40:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T14:36:00",
+      "FailCount": 4
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:36:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T14:34:00",
+      "FailCount": 3
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T14:32:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T14:28:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:28:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:26:00",
+      "FailCount": 3
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T14:26:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:24:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T14:22:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T14:14:00",
+      "FailCount": 4
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T14:12:00",
+      "FailCount": 4
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:12:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T14:10:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:08:00",
+      "FailCount": 3
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T14:06:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T14:02:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T13:58:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T13:56:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T13:56:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T13:36:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T13:32:00",
+      "FailCount": 3
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T13:30:00",
+      "FailCount": 28
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T13:30:00",
+      "FailCount": 26
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T13:28:00",
+      "FailCount": 53
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T13:28:00",
+      "FailCount": 37
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T13:26:00",
+      "FailCount": 13
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T13:26:00",
+      "FailCount": 12
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T13:24:00",
+      "FailCount": 3
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T13:24:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T13:20:00",
+      "FailCount": 6
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T13:18:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T13:18:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T12:56:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T12:54:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T12:54:00",
+      "FailCount": 1
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T12:52:00",
+      "FailCount": 6
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T12:52:00",
+      "FailCount": 2
+    },
+    {
+      "NodeName": "_DB_15",
+      "originalEventTimestamp": "2026-02-19T12:50:00",
+      "FailCount": 4
+    },
+    {
+      "NodeName": "_DB_14",
+      "originalEventTimestamp": "2026-02-19T12:50:00",
+      "FailCount": 1
+    }
+  ],
+  "metadata": {
+    "executedAt": "2026-02-19T16:50:35.1199774Z"
+  }
+}

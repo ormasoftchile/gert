@@ -1,0 +1,169 @@
+apiVersion: runbook/v0
+meta:
+    name: network-diag
+    kind: mitigation
+    description: |
+        Synthetic test runbook — Network connectivity diagnosis.
+        Exercises: CLI execution, captures, manual choices, branching, outcomes.
+    vars:
+        target_host: ""
+        target_port: "443"
+    governance:
+        allowed_commands:
+            - ping
+            - curl
+            - echo
+            - nslookup
+tree:
+    # ═══════════════════════════════════════════════════════════════════
+    # Step 1: Ping the target
+    # ═══════════════════════════════════════════════════════════════════
+    - step:
+        id: ping_target
+        type: cli
+        title: Ping target host
+        with:
+            argv: ["ping", "-n", "2", "{{ .target_host }}"]
+        capture:
+            ping_output: stdout
+        outcomes:
+            - when: '{{ eq .ping_output "" }}'
+              state: escalated
+              recommendation: Ping returned no output — command may have failed.
+      branches:
+        - condition: '{{ ne .ping_output "" }}'
+          label: Ping returned output
+          steps:
+            # ═══════════════════════════════════════════════════════════
+            # Step 2: Check HTTP connectivity
+            # ═══════════════════════════════════════════════════════════
+            - step:
+                id: check_http
+                type: cli
+                title: Check HTTP connectivity
+                with:
+                    argv: ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "https://{{ .target_host }}:{{ .target_port }}"]
+                capture:
+                    http_status: stdout
+
+            # ═══════════════════════════════════════════════════════════
+            # Step 3: DNS resolution
+            # ═══════════════════════════════════════════════════════════
+            - step:
+                id: dns_lookup
+                type: cli
+                title: DNS resolution check
+                with:
+                    argv: ["nslookup", "{{ .target_host }}"]
+                capture:
+                    dns_result: stdout
+
+            # ═══════════════════════════════════════════════════════════
+            # Step 4: Manual assessment — choice from options
+            # This is the key test: DRI selects from options, the value
+            # is captured, and branching continues based on the choice.
+            # ═══════════════════════════════════════════════════════════
+            - step:
+                id: assess_connectivity
+                type: manual
+                title: Assess connectivity result
+                instructions: |
+                    **Ping result:** {{ .ping_output }}
+                    **HTTP status:** {{ .http_status }}
+                    **DNS result:** {{ .dns_result }}
+
+                    Based on the data above, what is the connectivity status?
+                choices:
+                    variable: connectivity_status
+                    prompt: "Select the connectivity status:"
+                    options:
+                        - value: "reachable_direct"
+                          label: "Reachable (direct)"
+                          description: "Host responds to ping and HTTP, DNS resolves correctly"
+                        - value: "reachable_proxy"
+                          label: "Reachable (via proxy only)"
+                          description: "HTTP works but ping fails — traffic goes through a proxy/firewall"
+                        - value: "dns_failure"
+                          label: "DNS failure"
+                          description: "DNS does not resolve — name resolution issue"
+                        - value: "unreachable"
+                          label: "Unreachable"
+                          description: "No connectivity at all — network issue"
+              branches:
+                # ── Branch A: Direct connectivity OK ──────────────────
+                - condition: 'connectivity_status == "reachable_direct"'
+                  label: Reachable (direct)
+                  steps:
+                    - step:
+                        id: confirm_healthy
+                        type: manual
+                        title: Connectivity confirmed healthy
+                        instructions: |
+                            Host **{{ .target_host }}** is reachable via direct connection.
+                            HTTP status: **{{ .http_status }}**
+                            No action needed.
+                        outcomes:
+                            - state: no_action
+                              recommendation: |
+                                  {{ .target_host }} is reachable. Ping and HTTP both succeed.
+
+                # ── Branch B: Proxy only ──────────────────────────────
+                - condition: 'connectivity_status == "reachable_proxy"'
+                  label: Reachable (proxy)
+                  steps:
+                    - step:
+                        id: check_proxy_config
+                        type: manual
+                        title: Verify proxy configuration
+                        instructions: |
+                            Host **{{ .target_host }}** is reachable only via proxy.
+                            Ping fails but HTTP succeeds with status **{{ .http_status }}**.
+
+                            This is expected for hosts behind a corporate proxy or Azure Private Link.
+                            Verify the proxy/firewall configuration is correct.
+                        outcomes:
+                            - state: resolved
+                              recommendation: |
+                                  Connectivity works via proxy. Verify client is configured to use the proxy.
+
+                # ── Branch C: DNS failure ─────────────────────────────
+                - condition: 'connectivity_status == "dns_failure"'
+                  label: DNS failure
+                  steps:
+                    - step:
+                        id: dns_troubleshoot
+                        type: manual
+                        title: Troubleshoot DNS resolution
+                        instructions: |
+                            DNS resolution failed for **{{ .target_host }}**.
+                            DNS output: {{ .dns_result }}
+
+                            Check:
+                            - Is the hostname correct?
+                            - Is the DNS server reachable?
+                            - Are there any DNS alias (CNAME) issues?
+                        outcomes:
+                            - state: escalated
+                              recommendation: |
+                                  DNS resolution failure for {{ .target_host }}.
+                                  Escalate to networking team.
+
+                # ── Branch D: Unreachable ─────────────────────────────
+                - condition: 'connectivity_status == "unreachable"'
+                  label: Unreachable
+                  steps:
+                    - step:
+                        id: network_escalation
+                        type: manual
+                        title: Escalate to networking team
+                        instructions: |
+                            Host **{{ .target_host }}** is completely unreachable.
+                            - Ping: failed
+                            - HTTP: **{{ .http_status }}**
+                            - DNS: {{ .dns_result }}
+
+                            Escalate to the networking team for investigation.
+                        outcomes:
+                            - state: escalated
+                              recommendation: |
+                                  {{ .target_host }} is unreachable. Escalate to networking.

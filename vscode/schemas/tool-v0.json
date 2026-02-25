@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ormasoftchile/gert/schemas/tool-v0.json",
+  "$ref": "#/$defs/ToolDefinition",
+  "$defs": {
+    "ActionGovernance": {
+      "properties": {
+        "read_only": {
+          "type": "boolean"
+        },
+        "requires_approval": {
+          "type": "boolean"
+        },
+        "approval_min": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "RedactionRule": {
+      "properties": {
+        "pattern": {
+          "type": "string"
+        },
+        "replace": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "pattern",
+        "replace"
+      ]
+    },
+    "ToolAction": {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "argv": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "method": {
+          "type": "string"
+        },
+        "mcp_tool": {
+          "type": "string"
+        },
+        "args": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolArg"
+          },
+          "type": "object"
+        },
+        "capture": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolCapture"
+          },
+          "type": "object"
+        },
+        "governance": {
+          "$ref": "#/$defs/ActionGovernance"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ToolArg": {
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "string",
+            "int",
+            "bool",
+            "float"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "redact": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "type"
+      ]
+    },
+    "ToolCapture": {
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "text",
+            "json"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ToolDefinition": {
+      "properties": {
+        "apiVersion": {
+          "type": "string"
+        },
+        "meta": {
+          "$ref": "#/$defs/ToolMeta"
+        },
+        "transport": {
+          "$ref": "#/$defs/ToolTransport"
+        },
+        "governance": {
+          "$ref": "#/$defs/ToolGovernance"
+        },
+        "actions": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ToolAction"
+          },
+          "type": "object"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "apiVersion",
+        "meta",
+        "actions"
+      ]
+    },
+    "ToolGovernance": {
+      "properties": {
+        "read_only": {
+          "type": "boolean"
+        },
+        "redact": {
+          "items": {
+            "$ref": "#/$defs/RedactionRule"
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ToolMeta": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "binary": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "binary"
+      ]
+    },
+    "ToolStartup": {
+      "properties": {
+        "argv": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ready_signal": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(s|m|h)$"
+        },
+        "shutdown_method": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "ToolTransport": {
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "stdio",
+            "jsonrpc",
+            "mcp"
+          ],
+          "default": "stdio"
+        },
+        "binary": {
+          "type": "string"
+        },
+        "connect": {
+          "type": "string"
+        },
+        "startup": {
+          "$ref": "#/$defs/ToolStartup"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "title": "Gert Tool Definition v0",
+  "description": "Schema for gert tool definition YAML documents (.tool.yaml)"
+}

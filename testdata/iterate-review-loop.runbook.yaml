@@ -1,0 +1,78 @@
+apiVersion: runbook/v1
+meta:
+    name: iterate-review-loop
+    description: |
+        Demonstrates the iterate block for an implement → verify → review loop.
+        An agent implements a feature, runs tests to verify it, and a reviewer
+        evaluates the result. The loop repeats for 3 passes to show the full
+        iteration cycle: feedback → rework → converge.
+    vars:
+        task: "Add input validation to the login form"
+        repo: "acme/webapp"
+
+tree:
+    # ── Phase 1: Gather context ──────────────────────────────────────
+    - step:
+        id: gather_context
+        type: cli
+        title: Gather codebase context
+        instructions: Read the relevant source files to understand the current state.
+        with:
+            argv: ["echo", "Context gathered for {{ .repo }}"]
+        capture:
+            context_summary: stdout
+
+    # ── Phase 2: Iterate until all 3 passes complete ─────────────────
+    - iterate:
+        max: 3
+        until: 'iteration == "2"'
+        steps:
+            - step:
+                id: implement
+                type: cli
+                title: "Implement changes (pass {{ .iteration }})"
+                instructions: |
+                    Task: {{ .task }}
+                    Apply the required code changes based on the context and any
+                    prior review feedback.
+                with:
+                    argv: ["echo", "changes applied for pass {{ .iteration }}"]
+                capture:
+                    impl_status: stdout
+
+            - step:
+                id: verify
+                type: cli
+                title: "Run tests (pass {{ .iteration }})"
+                instructions: Execute the test suite to verify the implementation.
+                with:
+                    argv: ["echo", "all tests passed"]
+                capture:
+                    test_result: stdout
+                outcomes:
+                    - when: 'test_result != "all tests passed"'
+                      state: escalated
+                      recommendation: "Tests failed: {{ .test_result }}. Fix before review."
+
+            - step:
+                id: review
+                type: cli
+                title: "Review changes (pass {{ .iteration }})"
+                instructions: |
+                    Evaluate the implementation and test results.
+                    Output "SHIP_IT" if the changes are ready, or describe what needs fixing.
+                with:
+                    argv: ["echo", "review feedback for pass {{ .iteration }}"]
+                capture:
+                    review_verdict: stdout
+
+    # ── Phase 3: Ship ────────────────────────────────────────────────
+    - step:
+        id: ship
+        type: cli
+        title: Merge and deploy
+        instructions: "The review passed. Merge the changes to main."
+        with:
+            argv: ["echo", "Merged {{ .task }} after 3 review passes"]
+        capture:
+            merge_result: stdout

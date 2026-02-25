@@ -1,0 +1,8 @@
+apiVersion: runbook/v0
+meta:
+  name: empty-argv
+steps:
+  - id: step_one
+    type: cli
+    with:
+      argv: []

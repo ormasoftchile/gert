@@ -1,0 +1,109 @@
+{
+  "scopeName": "runbook.block.injection",
+  "injectionSelector": "L:source.yaml string.unquoted.block.yaml",
+  "patterns": [
+    {
+      "comment": "Template variables {{ .var }}",
+      "match": "\\{\\{\\s*[^}]+\\}\\}",
+      "name": "variable.other.template.gert"
+    },
+    {
+      "comment": "Kusto pipe operator followed by keyword (the most distinctive Kusto pattern)",
+      "match": "(\\|)\\s*(where|summarize|project|project-away|project-rename|project-reorder|project-keep|extend|order|sort|take|top|count|join|union|render|distinct|parse|parse-where|evaluate|limit|mv-expand|mv-apply|sample|search|serialize|getschema|invoke|lookup|make-series|externaldata|range|print|facet|fork|consume)\\b",
+      "captures": {
+        "1": { "name": "keyword.operator.pipe.kusto" },
+        "2": { "name": "keyword.other.kusto" }
+      }
+    },
+    {
+      "comment": "Kusto let declarations",
+      "match": "^\\s*(let)\\s+(\\w+)\\s*(=)",
+      "captures": {
+        "1": { "name": "keyword.other.kusto" },
+        "2": { "name": "variable.other.kusto" },
+        "3": { "name": "keyword.operator.assignment.kusto" }
+      }
+    },
+    {
+      "comment": "Kusto negated operators (distinctive, won't appear in prose)",
+      "match": "(!contains|!contains_cs|!startswith|!endswith|!has|!has_cs|!in|!in~|=~|!~)",
+      "name": "keyword.operator.kusto"
+    },
+    {
+      "comment": "Kusto/SQL comparison operators (symbolic, rare in prose)",
+      "match": "==|!=|<=|>=",
+      "name": "keyword.operator.comparison.kusto"
+    },
+    {
+      "comment": "Kusto built-in functions (only when followed by open-paren — safe, won't match prose)",
+      "match": "\\b(ago|now|bin|datetime|timespan|time|todynamic|dynamic|parse_json|isempty|isnotempty|isnull|isnotnull|coalesce|iff|iif|case|strlen|substring|indexof|replace|replace_string|replace_regex|trim|trim_start|trim_end|toupper|tolower|hash|dcount|count_distinct|avg|sum|min|max|make_set|make_list|make_bag|bag_merge|bag_keys|bag_has_key|pack|pack_array|array_length|array_sort_asc|array_sort_desc|array_concat|strcat|strcat_array|strcat_delim|split|tostring|toint|tolong|todouble|todecimal|todatetime|totimespan|format_datetime|format_timespan|toscalar|countif|dcountif|sumif|avgif|minif|maxif|round|floor|ceiling|abs|sign|log|log2|log10|exp|pow|sqrt|percentile|percentiles|any|arg_max|arg_min|stdev|variance|row_number|row_cumsum|prev|next|ingestion_time|extract|extract_all|parse_url|parse_urlquery|parse_path|parse_ipv4|parse_ipv6|ipv4_is_match|ipv4_is_private|set_difference|set_intersect|set_union|zip|repeat|base64_encode_tostring|base64_decode_tostring|url_encode|url_decode|hash_sha256|hash_md5|startofday|endofday|startofweek|endofweek|startofmonth|endofmonth|startofyear|endofyear|dayofweek|dayofmonth|dayofyear|getmonth|getyear|weekofyear|monthofyear|hourofday|unixtime_seconds_todatetime|unixtime_milliseconds_todatetime|datetime_diff|datetime_add|datetime_part|materialize|current_principal|current_cluster_endpoint|count|cnt)\\s*\\(",
+      "captures": {
+        "1": { "name": "support.function.kusto" }
+      }
+    },
+    {
+      "comment": "Kusto table names (Mon* Azure monitoring tables)",
+      "match": "\\bMon[A-Z]\\w*\\b",
+      "name": "entity.name.type.table.kusto"
+    },
+    {
+      "comment": "SQL multi-word keywords (distinctive, won't match prose)",
+      "match": "\\b(ORDER\\s+BY|GROUP\\s+BY|PARTITION\\s+BY|LEFT\\s+JOIN|RIGHT\\s+JOIN|INNER\\s+JOIN|OUTER\\s+JOIN|CROSS\\s+JOIN|FULL\\s+JOIN|UNION\\s+ALL)\\b",
+      "name": "keyword.other.sql"
+    },
+    {
+      "comment": "SQL distinctive single keywords (UPPERCASE, excluding short/common words)",
+      "match": "\\b(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|EXEC|EXECUTE|DECLARE|DISTINCT|BETWEEN|HAVING|EXISTS|PROCEDURE|FUNCTION|RETURNS|RETURN|TABLE|INDEX|VIEW|NOLOCK|RECOMPILE|MAXDOP|HOLDLOCK|UPDLOCK|READPAST|INTERSECT|EXCEPT|VALUES|WHERE|FROM|JOIN|UNION)\\b",
+      "name": "keyword.other.sql"
+    },
+    {
+      "comment": "SQL functions (UPPERCASE, followed by paren — safe)",
+      "match": "\\b(COUNT|SUM|AVG|MIN|MAX|CAST|CONVERT|COALESCE|ISNULL|NULLIF|ABS|CEILING|FLOOR|ROUND|GETDATE|GETUTCDATE|DATEADD|DATEDIFF|DATEPART|DATENAME|YEAR|MONTH|DAY|LEN|SUBSTRING|CHARINDEX|REPLACE|UPPER|LOWER|TRIM|LTRIM|RTRIM|LEFT|RIGHT|CONCAT|STRING_AGG|ROW_NUMBER|RANK|DENSE_RANK|STUFF|FORMAT|TRY_CAST|TRY_CONVERT|SCOPE_IDENTITY|NEWID|OBJECT_ID|DB_ID|DB_NAME)\\s*\\(",
+      "captures": {
+        "1": { "name": "support.function.sql" }
+      }
+    },
+    {
+      "comment": "PowerShell cmdlet pattern (Verb-Noun — very distinctive)",
+      "match": "\\b(Get|Set|New|Remove|Add|Import|Export|Invoke|Start|Stop|Test|Write|Read|Select|Where|ForEach|Sort|Group|Measure|Compare|Format|Out|ConvertTo|ConvertFrom|Connect|Disconnect|Enable|Disable|Install|Uninstall|Update|Register|Unregister|Clear|Copy|Move|Rename|Find|Save|Publish|Enter|Exit|Push|Pop|Show|Hide|Wait|Receive|Send|Resolve|Split|Join|Merge|Debug|Trace|Confirm|Grant|Revoke|Protect|Unprotect|Suspend|Resume|Restart|Reset|Undo|Redo|Expand|Compress|Lock|Unlock|Mount|Dismount|Repair|Optimize|Sync|Backup|Restore|Checkpoint|Switch|Complete|Submit|Use)-(\\w+)\\b",
+      "name": "support.function.powershell"
+    },
+    {
+      "comment": "PowerShell variables ($var, $env:VAR, $_, $PSItem, etc.)",
+      "match": "\\$[{(]?[\\w:._]+[})]?",
+      "name": "variable.other.powershell"
+    },
+    {
+      "comment": "PowerShell parameters (require space before dash to avoid matching inside hyphenated words)",
+      "match": "(?<=\\s)(-[A-Z][a-zA-Z]{2,})\\b",
+      "captures": {
+        "1": { "name": "entity.other.attribute-name.powershell" }
+      }
+    },
+    {
+      "comment": "PowerShell comparison operators (require whitespace boundaries)",
+      "match": "(?<=\\s)(-eq|-ne|-gt|-lt|-ge|-le|-like|-notlike|-match|-notmatch|-contains|-notcontains|-in|-notin|-replace|-split|-join|-is|-isnot|-as|-and|-or|-not|-band|-bor|-bnot|-bxor|-shl|-shr)(?=\\s|$)",
+      "name": "keyword.operator.powershell"
+    },
+    {
+      "comment": "Double-quoted strings",
+      "match": "\"[^\"]*\"",
+      "name": "string.quoted.double"
+    },
+    {
+      "comment": "Single-quoted strings",
+      "match": "'[^']*'",
+      "name": "string.quoted.single"
+    },
+    {
+      "comment": "Kusto line comments (// at start of line or after whitespace)",
+      "match": "//.*$",
+      "name": "comment.line.double-slash"
+    },
+    {
+      "comment": "SQL line comments",
+      "match": "--.*$",
+      "name": "comment.line.double-dash"
+    }
+  ]
+}

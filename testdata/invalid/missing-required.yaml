@@ -1,0 +1,7 @@
+meta:
+  name: missing-api-version
+steps:
+  - id: step_one
+    type: cli
+    with:
+      argv: ["echo", "hello"]

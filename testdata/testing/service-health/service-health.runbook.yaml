@@ -1,0 +1,87 @@
+apiVersion: runbook/v1
+
+tools:
+    - curl
+
+meta:
+    name: service-health
+    kind: mitigation
+    description: |
+        End-to-end service health check that invokes dns-check as a
+        precondition gate before checking the HTTP endpoint.
+    inputs:
+        hostname:
+            from: prompt
+            description: Target hostname to check (e.g. github.com)
+            example: github.com
+
+tree:
+    # ═══════════════════════════════════════════════════════════════
+    # Gate: DNS must resolve before we attempt HTTP checks
+    # ═══════════════════════════════════════════════════════════════
+    - step:
+        id: dns_gate
+        type: invoke
+        title: Verify DNS resolves for target
+        invoke:
+            runbook: dns-check
+            inputs:
+                hostname: "{{ .hostname }}"
+        gate:
+            stop_if:
+                - escalated
+        capture:
+            dns_output: dns_output
+
+    # ═══════════════════════════════════════════════════════════════
+    # Step 2: Only reached if DNS gate passed (outcome ≠ escalated)
+    # ═══════════════════════════════════════════════════════════════
+    - step:
+        id: check_http
+        type: tool
+        title: Check HTTP endpoint
+        tool:
+            name: curl
+            action: head
+            args:
+                url: "https://{{ .hostname }}"
+        capture:
+            http_response: stdout
+      branches:
+        - condition: '{{ contains .http_response "200" }}'
+          label: HTTP 200 OK
+          steps:
+            - step:
+                id: service_healthy
+                type: manual
+                title: Service is healthy
+                instructions: |
+                    **{{ .hostname }}** is reachable.
+                    - DNS: ✓ resolved
+                    - HTTP status: {{ .http_response }}
+                outcomes:
+                    - state: resolved
+                      recommendation: "Service {{ .hostname }} is healthy. DNS resolves, HTTP returns 200."
+
+        - condition: '{{ not (contains .http_response "200") }}'
+          label: HTTP error
+          steps:
+            - step:
+                id: http_failed
+                type: manual
+                title: HTTP check failed
+                instructions: |
+                    **{{ .hostname }}** DNS resolves but HTTP did not return 200.
+
+                    Response headers:
+                    ```
+                    {{ .http_response }}
+                    ```
+
+                    Possible causes:
+                    - Service is down
+                    - Firewall blocking port 443
+                    - TLS certificate issue
+                outcomes:
+                    - state: escalated
+                      recommendation: "DNS resolves for {{ .hostname }} but HTTP check failed. Escalate to service team."

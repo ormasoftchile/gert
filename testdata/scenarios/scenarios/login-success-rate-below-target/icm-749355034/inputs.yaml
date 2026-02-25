@@ -1,0 +1,7 @@
+# ICM 749355034 — LoginFailureCause: IsUndoOfRedoInterrupted
+# State: ACTIVE | Severity: Sev-3
+# Region: ProdSEas1a
+server_name: "spartan-srv-apac-bcprodasia-8ac6cea5248b"
+database_name: "db_bcprodasia_t76494306_20251212_09035382_9e35"
+environment: "ProdSEas1a"
+login_failure_cause: "IsUndoOfRedoInterrupted"

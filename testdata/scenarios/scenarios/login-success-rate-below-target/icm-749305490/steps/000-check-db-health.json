@@ -1,0 +1,51 @@
+{
+  "success": true,
+  "rowCount": 6,
+  "columns": [
+    "originalEventTimestamp",
+    "SuccessCount",
+    "FailCount",
+    "SuccessRate"
+  ],
+  "data": [
+    {
+      "originalEventTimestamp": "2026-02-19T16:45:00",
+      "SuccessCount": 939,
+      "FailCount": 1,
+      "SuccessRate": 99.900000000000006
+    },
+    {
+      "originalEventTimestamp": "2026-02-19T16:40:00",
+      "SuccessCount": 1332,
+      "FailCount": 7,
+      "SuccessRate": 99.5
+    },
+    {
+      "originalEventTimestamp": "2026-02-19T16:35:00",
+      "SuccessCount": 1235,
+      "FailCount": 5,
+      "SuccessRate": 99.599999999999994
+    },
+    {
+      "originalEventTimestamp": "2026-02-19T16:30:00",
+      "SuccessCount": 1379,
+      "FailCount": 7,
+      "SuccessRate": 99.5
+    },
+    {
+      "originalEventTimestamp": "2026-02-19T16:25:00",
+      "SuccessCount": 1688,
+      "FailCount": 5,
+      "SuccessRate": 99.700000000000003
+    },
+    {
+      "originalEventTimestamp": "2026-02-19T16:20:00",
+      "SuccessCount": 1988,
+      "FailCount": 10,
+      "SuccessRate": 99.5
+    }
+  ],
+  "metadata": {
+    "executedAt": "2026-02-19T16:50:49.4409035Z"
+  }
+}
