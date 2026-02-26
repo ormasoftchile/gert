@@ -10,10 +10,12 @@ A platform for governed, executable, debuggable runbooks with full traceability,
 - **Validate** runbook YAML against a strict JSON Schema (Draft 2020-12)
 - **Execute** runbooks in real, replay, or dry-run mode with CLI, manual, tool, and invoke steps
 - **Debug** interactively with a step-through REPL
+- **TUI** — full terminal UI (Bubble Tea) with step list, output, and status panels; no VS Code required
+- **Diagram** — generate Mermaid flowcharts or ASCII diagrams from any runbook
 - **Replay** executions deterministically with pre-recorded scenarios
 - **Test** runbooks with scenario replay tests and rich assertions (`gert test`)
-- **Compile** Markdown TSGs into schema-valid runbooks (via Azure OpenAI)
 - **Migrate** runbooks from v0 to v1 (`gert migrate`)
+- **Serve** — JSON-RPC 2.0 server powering the VS Code extension and other clients
 - **Tool definitions** (`.tool.yaml`): typed actions over stdio, JSON-RPC, or MCP transports
 - **Input providers** (`.provider.yaml`): pluggable resolution of `from:` bindings (incident management, PagerDuty, etc.)
 - **Governance** enforcement: command allowlists/denylists, env var blocking, output redaction, per-action approval gates
@@ -42,8 +44,9 @@ go build -o gert ./cmd/gert
 | `gert validate <runbook.yaml>` | Validate a runbook against the JSON Schema and domain rules |
 | `gert exec <runbook.yaml>` | Execute a runbook (flags: `--mode`, `--scenario`, `--as`, `--resume`, `--var`, `--record`) |
 | `gert debug <runbook.yaml>` | Launch interactive debugger (flags: `--mode`, `--scenario`, `--as`, `--var`) |
+| `gert tui <runbook.yaml>` | Launch terminal UI (flags: `--mode`, `--scenario`, `--as`, `--var`, `--compact`) |
+| `gert diagram <runbook.yaml>` | Generate a visual diagram (flags: `-f mermaid\|ascii`, `-o file`) |
 | `gert test <runbook.yaml...>` | Run scenario replay tests (flags: `--scenario`, `--json`, `--fail-fast`, `--timeout`) |
-| `gert compile <tsg.md>` | Compile a Markdown TSG into a runbook (flags: `--out`, `--mapping`, `--endpoint`, `--api-key`) |
 | `gert migrate <runbook.yaml>` | Migrate a runbook from v0 to v1 (flags: `--dry-run`) |
 | `gert schema export` | Export JSON Schema to stdout |
 | `gert serve` | Start JSON-RPC server for VS Code extension (stdio) |
@@ -72,6 +75,29 @@ gert debug runbook.yaml --as engineer@company.com
 ```
 
 Commands: `next`, `continue`, `print vars`, `print captures`, `history`, `evidence set/check/attach`, `approve`, `snapshot`, `dump`, `help`, `quit`
+
+### Terminal UI (TUI)
+
+```bash
+gert tui runbook.yaml --as engineer@company.com
+```
+
+A full interactive terminal interface (Bubble Tea) with three-panel layout: step list, command output, and status detail. Supports real, replay, and dry-run modes. Use `--compact` for narrow terminals.
+
+### Diagrams
+
+```bash
+# Mermaid flowchart (default) — paste into GitHub, docs, VS Code preview
+gert diagram runbook.yaml
+
+# ASCII for terminals
+gert diagram runbook.yaml -f ascii
+
+# Write to file
+gert diagram runbook.yaml -o flow.md
+```
+
+Diagrams show step type icons (⚡ cli, 🧑 manual, 🔧 tool, 📎 invoke), branch conditions, capture annotations, and color-coded outcome terminals. Also available via the `runbook/diagram` JSON-RPC method.
 
 ### Scenario testing
 
@@ -271,20 +297,19 @@ pkg/
   evidence/        Evidence types, SHA256 hashing
   providers/       CommandExecutor, EvidenceCollector implementations
   debugger/        Interactive REPL debugger
+  diagram/         Mermaid and ASCII diagram generation from runbook trees
   replay/          ReplayExecutor, scenario parsing
-  compiler/        3-stage TSG-to-runbook compilation (IR → LLM → validation)
   inputs/          Input provider framework, JSON-RPC provider, workspace config
   tools/           Tool manager, stdio/jsonrpc/mcp transports
   serve/           JSON-RPC server for VS Code extension
   testing/         Scenario replay test runner and assertion engine
+  tui/             Bubble Tea terminal UI
 schemas/           JSON Schema (Draft 2020-12): runbook-v0, runbook-v1, tool-v0
 tools/             Built-in tool definitions (curl, ping, nslookup)
 vscode/            VS Code extension (TypeScript)
   src/             Extension source, JSON-RPC client, runbook panel webview
   schemas/         Bundled JSON schemas for in-editor validation
   syntaxes/        Kusto syntax injection grammar
-docs/design/       Design documents (core-isolation, invoke-step, testing, tool-definitions)
-testdata/          Test fixtures and scenario replay data
 ```
 
 ## VS Code Extension
@@ -310,7 +335,7 @@ cd vscode && npm install && npm run compile
 go test ./... -v
 
 # Run scenario replay tests for runbooks
-gert test testdata/testing/service-health/service-health.runbook.yaml
+gert test service-health.runbook.yaml
 
 # Run VS Code extension tests
 cd vscode && npm test

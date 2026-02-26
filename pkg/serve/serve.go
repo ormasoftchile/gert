@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ormasoftchile/gert/pkg/diagram"
 	"github.com/ormasoftchile/gert/pkg/inputs"
 	"github.com/ormasoftchile/gert/pkg/providers"
 	"github.com/ormasoftchile/gert/pkg/replay"
@@ -39,6 +40,16 @@ type RPCError struct {
 	Message string `json:"message"`
 }
 
+// DisplayConfig controls which debug/trace UI sections to show.
+// All fields are optional pointers so callers can omit them (nil = use default).
+type DisplayConfig struct {
+	DebugTrace        *bool `json:"debugTrace,omitempty"`        // master toggle — hides captures + outcome conditions
+	Captures          *bool `json:"captures,omitempty"`          // show the Captures section
+	OutcomeConditions *bool `json:"outcomeConditions,omitempty"` // show when-expressions on outcomes
+	CopySummary       *bool `json:"copySummary,omitempty"`       // show "Copy Summary" button
+	SaveForReplay     *bool `json:"saveForReplay,omitempty"`     // show "Save for Replay" button
+}
+
 // ExecStartParams are the parameters for exec/start.
 type ExecStartParams struct {
 	Runbook     string            `json:"runbook"`
@@ -49,6 +60,7 @@ type ExecStartParams struct {
 	RebaseTime  string            `json:"rebaseTime,omitempty"`
 	Actor       string            `json:"actor,omitempty"`
 	ResumeRunID string            `json:"resumeRunId,omitempty"` // if set, resume an existing run
+	Display     *DisplayConfig    `json:"display,omitempty"`     // UI display preferences
 }
 
 // SubmitEvidenceParams are the parameters for exec/submitEvidence.
@@ -84,6 +96,9 @@ type Server struct {
 
 	// Session persistence — root run's base dir for session.json
 	rootBaseDir string
+
+	// Display preferences from exec/start (echoed back to client)
+	display *DisplayConfig
 }
 
 // invokeFrame stores parent context when entering a child invoke runbook.
@@ -263,6 +278,8 @@ func (s *Server) dispatch(msg *Message) {
 		s.handleGetManifest(msg)
 	case "exec/saveScenario":
 		s.handleSaveScenario(msg)
+	case "runbook/diagram":
+		s.handleDiagram(msg)
 	case "shutdown":
 		s.cancel()
 		s.sendResult(msg.ID, map[string]string{"status": "shutting down"})
@@ -433,6 +450,9 @@ func (s *Server) handleExecStart(msg *Message) {
 	s.engine = engine
 	s.rootBaseDir = engine.GetBaseDir()
 
+	// Store display preferences
+	s.display = params.Display
+
 	// Build step summaries: prefer flat steps, fall back to flattened tree
 	stepSummaries := buildStepSummaries(rb.Steps)
 	stepCount := len(rb.Steps)
@@ -454,6 +474,9 @@ func (s *Server) handleExecStart(msg *Message) {
 	}
 	if rb.Meta.Description != "" {
 		result["description"] = rb.Meta.Description
+	}
+	if s.display != nil {
+		result["display"] = s.display
 	}
 	if len(rb.Tree) > 0 {
 		result["tree"] = s.resolveTreeForDisplay(rb.Tree)
@@ -1920,6 +1943,52 @@ func (s *Server) handleSaveScenario(msg *Message) {
 	s.sendResult(msg.ID, map[string]string{
 		"status":    "saved",
 		"outputDir": params.OutputDir,
+	})
+}
+
+// handleDiagram generates a diagram from a runbook file or the currently loaded runbook.
+func (s *Server) handleDiagram(msg *Message) {
+	var params struct {
+		File   string `json:"file"`
+		Format string `json:"format"`
+	}
+	if msg.Params != nil {
+		if err := json.Unmarshal(msg.Params, &params); err != nil {
+			s.sendError(msg.ID, -32602, fmt.Sprintf("invalid params: %v", err))
+			return
+		}
+	}
+
+	// Determine runbook source
+	var rb *schema.Runbook
+	if params.File != "" {
+		var err error
+		rb, err = schema.LoadFile(params.File)
+		if err != nil {
+			s.sendError(msg.ID, -32603, fmt.Sprintf("load runbook: %v", err))
+			return
+		}
+	} else if s.runbook != nil {
+		rb = s.runbook
+	} else {
+		s.sendError(msg.ID, -32604, "no runbook specified or loaded")
+		return
+	}
+
+	format := diagram.FormatMermaid
+	if params.Format != "" {
+		format = diagram.Format(params.Format)
+	}
+
+	out, err := diagram.Generate(rb, format)
+	if err != nil {
+		s.sendError(msg.ID, -32603, fmt.Sprintf("generate diagram: %v", err))
+		return
+	}
+
+	s.sendResult(msg.ID, map[string]string{
+		"format":  string(format),
+		"diagram": out,
 	})
 }
 

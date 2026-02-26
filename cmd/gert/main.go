@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ormasoftchile/gert/pkg/debugger"
+	"github.com/ormasoftchile/gert/pkg/diagram"
 	"github.com/ormasoftchile/gert/pkg/inputs"
 	"github.com/ormasoftchile/gert/pkg/providers"
 	"github.com/ormasoftchile/gert/pkg/replay"
@@ -572,6 +573,45 @@ var versionCmd = &cobra.Command{
 	},
 }
 
+// --- diagram ---
+
+var diagramFormat string
+var diagramOutput string
+
+var diagramCmd = &cobra.Command{
+	Use:   "diagram <runbook.yaml>",
+	Short: "Generate a visual diagram from a runbook",
+	Long: `Generate a Mermaid flowchart or ASCII diagram from a runbook YAML file.
+
+Output formats:
+  mermaid   Mermaid flowchart (default) — paste into GitHub, VS Code preview, etc.
+  ascii     Simple ASCII box diagram for terminals.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		rb, err := schema.LoadFile(args[0])
+		if err != nil {
+			return fmt.Errorf("load runbook: %w", err)
+		}
+
+		format := diagram.Format(diagramFormat)
+		out, err := diagram.Generate(rb, format)
+		if err != nil {
+			return err
+		}
+
+		if diagramOutput != "" {
+			if err := os.WriteFile(diagramOutput, []byte(out), 0644); err != nil {
+				return fmt.Errorf("write output: %w", err)
+			}
+			fmt.Fprintf(os.Stderr, "Diagram written to %s\n", diagramOutput)
+			return nil
+		}
+
+		fmt.Print(out)
+		return nil
+	},
+}
+
 func init() {
 	// exec flags
 	execCmd.Flags().StringVar(&execMode, "mode", "real", "Execution mode: real, replay, or dry-run")
@@ -602,6 +642,11 @@ func init() {
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(tuiCmd)
+	rootCmd.AddCommand(diagramCmd)
+
+	// diagram flags
+	diagramCmd.Flags().StringVarP(&diagramFormat, "format", "f", "mermaid", "Output format: mermaid or ascii")
+	diagramCmd.Flags().StringVarP(&diagramOutput, "output", "o", "", "Write output to file instead of stdout")
 
 	// tui flags
 	tuiCmd.Flags().StringVar(&tuiMode, "mode", "real", "Execution mode: real, replay, or dry-run")
