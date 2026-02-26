@@ -763,6 +763,7 @@ func (s *Server) handleExecNext(msg *Message) {
 		s.sendEvent("event/stepCompleted", map[string]interface{}{
 			"stepId": step.ID,
 			"status": "failed",
+			"type":   step.Type,
 			"error":  err.Error(),
 		})
 		s.sendResult(msg.ID, map[string]interface{}{"stepId": step.ID, "status": "failed", "error": err.Error()})
@@ -773,6 +774,7 @@ func (s *Server) handleExecNext(msg *Message) {
 	s.sendEvent("event/stepCompleted", map[string]interface{}{
 		"stepId":   step.ID,
 		"status":   result.Status,
+		"type":     step.Type,
 		"captures": result.Captures,
 		"error":    result.Error,
 	})
@@ -827,7 +829,7 @@ func (s *Server) handleTreeNext(msg *Message) {
 
 		if err != nil {
 			errEvt := map[string]interface{}{
-				"stepId": step.ID, "status": "failed", "error": err.Error(),
+				"stepId": step.ID, "status": "failed", "type": step.Type, "error": err.Error(),
 			}
 			if len(s.invokeStack) > 0 {
 				errEvt["invokeChild"] = true
@@ -841,7 +843,7 @@ func (s *Server) handleTreeNext(msg *Message) {
 		s.treeCursor.stepIdx++
 
 		compEvt := map[string]interface{}{
-			"stepId": step.ID, "status": result.Status,
+			"stepId": step.ID, "status": result.Status, "type": step.Type,
 			"captures": result.Captures, "error": result.Error,
 		}
 		if len(s.invokeStack) > 0 {
@@ -867,6 +869,7 @@ func (s *Server) handleTreeNext(msg *Message) {
 						s.sendEvent("event/stepCompleted", map[string]interface{}{
 							"stepId":       step.ID,
 							"status":       "passed",
+							"type":         step.Type,
 							"captures":     result.Captures,
 							"childOutcome": outcome.State,
 							"invokeChild":  true,
@@ -1223,6 +1226,7 @@ func (s *Server) handleTreeNext(msg *Message) {
 				s.sendEvent("event/stepCompleted", map[string]interface{}{
 					"stepId": step.ID,
 					"status": "failed",
+					"type":   step.Type,
 					"error":  err.Error(),
 				})
 				s.sendResult(msg.ID, map[string]interface{}{
@@ -1271,6 +1275,7 @@ func (s *Server) executeTreeStep(msg *Message, pn pendingNode) {
 		errEvt := map[string]interface{}{
 			"stepId": step.ID,
 			"status": "failed",
+			"type":   step.Type,
 			"error":  err.Error(),
 		}
 		if len(s.invokeStack) > 0 {
@@ -1301,6 +1306,7 @@ func (s *Server) executeTreeStep(msg *Message, pn pendingNode) {
 	stepCompletedEvt := map[string]interface{}{
 		"stepId":   step.ID,
 		"status":   result.Status,
+		"type":     step.Type,
 		"captures": result.Captures,
 		"error":    result.Error,
 	}
@@ -1336,6 +1342,7 @@ func (s *Server) executeTreeStep(msg *Message, pn pendingNode) {
 					s.sendEvent("event/stepCompleted", map[string]interface{}{
 						"stepId":       step.ID,
 						"status":       "passed",
+						"type":         step.Type,
 						"captures":     result.Captures,
 						"childOutcome": outcome.State,
 						"invokeChild":  true,
@@ -1431,6 +1438,7 @@ func (s *Server) handleChooseOutcome(msg *Message) {
 		s.sendEvent("event/stepCompleted", map[string]interface{}{
 			"stepId": step.ID,
 			"status": "failed",
+			"type":   step.Type,
 			"error":  err.Error(),
 		})
 		s.sendResult(msg.ID, map[string]interface{}{"stepId": step.ID, "status": "failed", "error": err.Error()})
@@ -1441,6 +1449,7 @@ func (s *Server) handleChooseOutcome(msg *Message) {
 	s.sendEvent("event/stepCompleted", map[string]interface{}{
 		"stepId":   step.ID,
 		"status":   result.Status,
+		"type":     step.Type,
 		"captures": result.Captures,
 	})
 

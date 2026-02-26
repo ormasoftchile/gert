@@ -75,6 +75,7 @@ export class RunbookPanel {
   private stepErrors: Map<string, string> = new Map();
   private tree: any[] = [];  // tree structure from gert serve
   private processing = false; // true while waiting for server after user action
+  private nextInFlight = false; // true while a case 'next' handler is executing (prevents stale auto-advance)
   private runCompleted = false; // true when all steps are done (no outcome)
   private runbookKind = 'mitigation'; // kind from meta.kind
   private viewingStepId: string | null = null; // step being browsed (non-active)
@@ -271,6 +272,13 @@ export class RunbookPanel {
         // Invoke child steps are driven by the serve layer — never auto-advance them.
         if (msg.params.invokeChild) break;
 
+        // If a case 'next' handler is already in-flight (awaiting exec/next response),
+        // do NOT schedule another auto-advance — the in-flight handler will drive
+        // the next step when the RPC response arrives. Without this guard, the
+        // delayed timer fires after the manual step is already displayed and sends
+        // a spurious exec/next that marks-complete without user choice.
+        if (this.nextInFlight) break;
+
         // Auto-advance: non-manual passed steps need no user interaction.
         // The query ran, data was captured — advance to the next step automatically.
         if (this.autoRunning) {
@@ -282,16 +290,21 @@ export class RunbookPanel {
           // Brief flash so the user sees captures before moving on
           const delay = autoMode === 'summary' ? 100 : 600;
           setTimeout(async () => {
+            // Double-check: if a next call started between schedule and fire, bail out
+            if (this.nextInFlight) return;
             try {
               this.processing = true;
               this.updateWebview();
               const nextResult = await this.client.execNext();
+              if (nextResult?.status === 'awaiting_user') {
+                this.processing = false;
+              }
               if (nextResult?.status === 'completed' && !this.outcomeResult) {
                 this.processing = false;
                 this.runCompleted = true;
                 this.currentStepDetail = null;
-                this.updateWebview();
               }
+              this.updateWebview();
             } catch (e: any) {
               this.processing = false;
               this.updateWebview();
@@ -391,6 +404,7 @@ export class RunbookPanel {
       case 'next':
         try {
           this.processing = true;
+          this.nextInFlight = true;
           this.updateWebview();
           let nextResult = await this.client.execNext();
 
@@ -412,13 +426,20 @@ export class RunbookPanel {
           }
           // 'manual' mode: no auto-advance loop — each step waits for user click
 
+          this.nextInFlight = false;
+
           // Merge result data (e.g. choices) into currentStepDetail so the webview can render them
           if (nextResult && this.currentStepDetail && nextResult.stepId === this.currentStepDetail.stepId) {
             if (nextResult.choices) { this.currentStepDetail.choices = nextResult.choices; }
             if (nextResult.hasOutcomes !== undefined) { this.currentStepDetail.hasOutcomes = nextResult.hasOutcomes; }
             this.stepDetails.set(this.currentStepDetail.stepId, this.currentStepDetail);
-            this.updateWebview();
           }
+
+          // Clear processing when awaiting user input so buttons render
+          if (nextResult?.status === 'awaiting_user') {
+            this.processing = false;
+          }
+          this.updateWebview();
 
           // If tree execution is fully completed with no more steps
           if (nextResult?.status === 'completed' && !this.outcomeResult) {
@@ -429,6 +450,7 @@ export class RunbookPanel {
           }
         } catch (e: any) {
           this.processing = false;
+          this.nextInFlight = false;
           this.updateWebview();
           vscode.window.showErrorMessage(`Gert: Step failed — ${e.message}`);
         }
