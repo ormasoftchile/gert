@@ -64,6 +64,19 @@ paste-*
 
 # Runbooks (local scratch, not part of the engine)
 *.runbook.yaml
+runbook.yaml
 
 # Debug artifacts
 debug-*
+
+# Copilot / GitHub config (local)
+.copilot/
+.github/
+
+# Workspace file
+gert.code-workspace
+gert.yaml
+
+# Local docs
+mapping.md
+gert-spec.md
