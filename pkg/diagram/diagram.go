@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/ormasoftchile/gert/pkg/schema"
 )
 
@@ -261,7 +262,14 @@ func writeASCIIStep(b *strings.Builder, s diagramStep, indent int) {
 	}
 
 	content := fmt.Sprintf(" %s %s ", icon, label)
-	boxWidth := len([]rune(content)) + 2
+	contentWidth := runewidth.StringWidth(content)
+	boxWidth := contentWidth
+	if s.capture != "" {
+		capLine := " → " + s.capture
+		if w := runewidth.StringWidth(capLine); w > boxWidth {
+			boxWidth = w
+		}
+	}
 	if boxWidth < 22 {
 		boxWidth = 22
 	}
@@ -271,10 +279,10 @@ func writeASCIIStep(b *strings.Builder, s diagramStep, indent int) {
 	mid := boxWidth / 2
 
 	b.WriteString(pad + "┌" + topBot + "┐\n")
-	b.WriteString(pad + "│" + content + strings.Repeat(" ", boxWidth-len([]rune(content))) + "│\n")
+	b.WriteString(pad + "│" + content + strings.Repeat(" ", boxWidth-contentWidth) + "│\n")
 	if s.capture != "" {
 		capLine := " → " + s.capture
-		b.WriteString(pad + "│" + capLine + strings.Repeat(" ", boxWidth-len([]rune(capLine))) + "│\n")
+		b.WriteString(pad + "│" + capLine + strings.Repeat(" ", boxWidth-runewidth.StringWidth(capLine)) + "│\n")
 	}
 	b.WriteString(pad + "└" + strings.Repeat("─", mid) + "┬" + strings.Repeat("─", boxWidth-mid-1) + "┘\n")
 }
