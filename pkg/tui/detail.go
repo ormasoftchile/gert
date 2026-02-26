@@ -77,8 +77,13 @@ func (d *detailBar) Clear() {
 	d.recommendation = ""
 }
 
+// SetAwaiting marks the current step as awaiting user input.
+func (d *detailBar) SetAwaiting(stepID string) {
+	d.status = "awaiting"
+}
+
 // View renders the detail bar.
-func (d *detailBar) View(running, completed bool) string {
+func (d *detailBar) View(running, completed bool, overlay overlayKind) string {
 	if d.outcome != "" {
 		// Outcome banner
 		banner := fmt.Sprintf("◆ Outcome: %s", d.outcome)
@@ -113,6 +118,8 @@ func (d *detailBar) View(running, completed bool) string {
 	switch d.status {
 	case "running":
 		parts = append(parts, detailLabelStyle.Render("│ ")+statusRunningStyle.Render("⏳ executing..."))
+	case "awaiting":
+		parts = append(parts, detailLabelStyle.Render("│ ")+statusAwaitingStyle.Render("⏸ awaiting input"))
 	case "passed":
 		parts = append(parts, detailLabelStyle.Render("│ ")+statusPassedStyle.Render("✓ passed"))
 	case "failed":
@@ -152,7 +159,7 @@ func (d *detailBar) View(running, completed bool) string {
 	}
 
 	// Key bar
-	content += "\n\n" + keyBarStyle.Render(keyBarText(running, completed, overlayNone))
+	content += "\n\n" + keyBarStyle.Render(keyBarText(running, completed, overlay))
 
 	return detailBarStyle.Width(d.width - 4).Render(content)
 }

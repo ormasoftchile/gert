@@ -115,6 +115,10 @@ var (
 
 	statusRunningStyle = lipgloss.NewStyle().
 				Foreground(colorYellow)
+
+	statusAwaitingStyle = lipgloss.NewStyle().
+				Foreground(colorCyan).
+				Bold(true)
 )
 
 // --- Key bar styles ---

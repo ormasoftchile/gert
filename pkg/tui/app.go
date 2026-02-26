@@ -89,6 +89,7 @@ type Model struct {
 	completed    bool
 	awaitingUser bool   // server returned awaiting_user — waiting for choice/outcome/evidence
 	pendingStep  string // stepID that is awaiting user action
+	execInFlight bool   // true while an advanceStep() Cmd is running — prevents duplicate exec/next
 	fatalErr     string
 
 	// Step type tracking (for auto-advance decisions)
@@ -287,9 +288,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.layoutPanels()
 
 		// Auto-advance first step
+		m.execInFlight = true
 		cmds = append(cmds, m.advanceStep())
 
 	case nextDoneMsg:
+		m.execInFlight = false
 		m.running = false
 		if msg.err != nil {
 			// Check if it's a "run completed" signal
@@ -303,6 +306,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.result != nil && msg.result.Status == "awaiting_user" {
 			m.awaitingUser = true
 			m.pendingStep = msg.result.StepID
+			m.detail.SetAwaiting(msg.result.StepID)
 
 			// Determine which overlay to show
 			if msg.result.Choices != nil {
@@ -329,6 +333,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// User presses Enter to advance
 				m.output.AppendOutput(msg.result.StepID,
 					"\n"+detailLabelStyle.Render("Awaiting user action — press Enter to continue")+"\n")
+			}
+		} else if msg.result != nil {
+			// Step completed (passed/failed). Auto-advance if passed non-manual.
+			// The server returns after each step execution; the TUI drives the
+			// next call so the user sees progress. Events are informational only.
+			if msg.result.Status == "passed" {
+				stepType := m.stepTypes[msg.result.StepID]
+				if stepType != "manual" {
+					m.running = true
+					m.execInFlight = true
+					cmds = append(cmds, m.advanceStep())
+				}
 			}
 		}
 
@@ -403,6 +419,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.overlay = overlayNone
 			return m, nil
 		}
+		// Dismiss choice/evidence overlays — keep state pending so Enter re-shows
+		if m.overlay == overlayChoice {
+			m.overlay = overlayNone
+			m.output.AppendOutput(m.pendingStep,
+				"\n"+detailLabelStyle.Render("Choice pending — press Enter to resume")+"\n")
+			return m, nil
+		}
+		if m.overlay == overlayEvidence {
+			m.overlay = overlayNone
+			m.output.AppendOutput(m.pendingStep,
+				"\n"+detailLabelStyle.Render("Evidence pending — press Enter to resume")+"\n")
+			return m, nil
+		}
 		// Clear search highlight
 		if m.search.HasQuery() {
 			m.search.Close()
@@ -447,13 +476,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case matchKey(msg, keys.Advance):
 		if m.awaitingUser && m.pendingStep != "" {
-			// Acknowledge manual step — advance
+			// Re-show pending overlay if user dismissed it with Escape
+			if m.choice.visible && m.overlay != overlayChoice {
+				m.overlay = overlayChoice
+				return m, nil
+			}
+			if m.evidence.visible && m.overlay != overlayEvidence {
+				m.overlay = overlayEvidence
+				return m, nil
+			}
+			// No pending overlay — advance (acknowledge manual step)
 			m.awaitingUser = false
 			m.running = true
+			m.execInFlight = true
 			return m, m.advanceStep()
 		}
-		if !m.running && m.started && !m.completed {
+		if !m.running && m.started && !m.completed && !m.execInFlight {
 			m.running = true
+			m.execInFlight = true
 			return m, m.advanceStep()
 		}
 
@@ -569,13 +609,10 @@ func (m *Model) handleServerEvent(ev serverEventMsg) tea.Cmd {
 			m.output.AppendOutput(step.StepID, capText)
 		}
 
-		// Auto-advance: if step passed and is not manual, advance automatically (Fix 2)
-		// This matches the VS Code extension's animated auto-advance behavior.
-		m.running = false
-		if step.Status == "passed" && m.stepTypes[step.StepID] != "manual" {
-			m.running = true
-			return m.advanceStep()
-		}
+		// Events are informational — the server already auto-advances through
+		// CLI steps within a single exec/next call. Do NOT call advanceStep()
+		// here; auto-advance is driven by nextDoneMsg to avoid duplicate
+		// exec/next calls that can deadlock the server.
 
 	case "event/stepSkipped":
 		var step stepEvent
@@ -863,7 +900,7 @@ func (m Model) View() string {
 	searchView := m.search.View()
 
 	// Detail bar
-	detail := m.detail.View(m.running, m.completed)
+	detail := m.detail.View(m.running, m.completed, m.overlay)
 
 	result := header + "\n" + main
 	if searchView != "" {
