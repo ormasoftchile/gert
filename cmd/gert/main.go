@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ormasoftchile/gert/pkg/compiler"
 	"github.com/ormasoftchile/gert/pkg/debugger"
 	"github.com/ormasoftchile/gert/pkg/inputs"
 	"github.com/ormasoftchile/gert/pkg/providers"
@@ -90,7 +89,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 
 	ext := strings.ToLower(filepath.Ext(filePath))
 	if ext == ".md" || ext == ".markdown" {
-		return fmt.Errorf("%s is a Markdown file, not a runbook YAML.\nDid you mean: gert compile %s --out runbook.yaml", filePath, filePath)
+		return fmt.Errorf("%s is a Markdown file, not a runbook YAML — only .yaml files are supported", filePath)
 	}
 
 	rb, errs := schema.ValidateFile(filePath)
@@ -533,191 +532,6 @@ func runDebug(cmd *cobra.Command, args []string) error {
 	return d.Run(ctx)
 }
 
-// --- compile ---
-
-var (
-	compileOut        string
-	compileMapping    string
-	compileEndpoint   string
-	compileAPIKey     string
-	compileDeployment string
-	compileAPIVersion string
-	compileLLM        string
-	compileForce      bool
-)
-
-var compileCmd = &cobra.Command{
-	Use:   "compile [tsg.md]",
-	Short: "Compile a Markdown TSG into a runbook via LLM",
-	Long: `Compile a Markdown TSG into a schema-valid runbook.yaml and mapping.md.
-
-Uses an LLM to interpret prose and code blocks, then validates the output
-against the runbook JSON Schema.
-
-LLM backends (--llm flag):
-  azure   – Azure OpenAI (default). Requires endpoint, API key, deployment.
-  copilot – GitHub Copilot CLI. No credentials needed; uses the copilot
-            binary from VS Code.
-
-Azure credentials are read from (in priority order):
-  1. CLI flags (--endpoint, --api-key, --deployment)
-  2. Environment variables
-  3. A .env file in the current directory (gitignored)
-
-Create a .env file:
-  AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com
-  AZURE_OPENAI_API_KEY=<your-key>
-  AZURE_OPENAI_DEPLOYMENT=<deployment-name>`,
-	Args: cobra.ExactArgs(1),
-	RunE: runCompile,
-}
-
-func runCompile(cmd *cobra.Command, args []string) error {
-	tsgPath := args[0]
-
-	// Derive output paths from source TSG if not explicitly set
-	if !cmd.Flags().Changed("out") {
-		base := strings.TrimSuffix(filepath.Base(tsgPath), filepath.Ext(tsgPath))
-		dir := filepath.Dir(tsgPath)
-		compileOut = filepath.Join(dir, base+".runbook.yaml")
-	}
-	if !cmd.Flags().Changed("mapping") {
-		base := strings.TrimSuffix(filepath.Base(tsgPath), filepath.Ext(tsgPath))
-		dir := filepath.Dir(tsgPath)
-		compileMapping = filepath.Join(dir, base+".mapping.md")
-	}
-
-	// Build LLM client based on --llm flag
-	var client compiler.LLMClient
-	switch compileLLM {
-	case "copilot":
-		client = compiler.NewCopilotCLIClient()
-		fmt.Println("Compiling TSG via Copilot CLI...")
-	case "azure", "":
-		cfg := compiler.AzureOpenAIConfig{
-			Endpoint:   firstNonEmpty(compileEndpoint, os.Getenv("AZURE_OPENAI_ENDPOINT")),
-			APIKey:     firstNonEmpty(compileAPIKey, os.Getenv("AZURE_OPENAI_API_KEY")),
-			Deployment: firstNonEmpty(compileDeployment, os.Getenv("AZURE_OPENAI_DEPLOYMENT")),
-			APIVersion: firstNonEmpty(compileAPIVersion, os.Getenv("AZURE_OPENAI_API_VERSION")),
-		}
-		var err error
-		client, err = compiler.NewAzureOpenAIClient(cfg)
-		if err != nil {
-			return fmt.Errorf("Azure OpenAI setup: %w\n\nCreate a .env file in the project root with:\n  AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com\n  AZURE_OPENAI_API_KEY=<your-key>\n  AZURE_OPENAI_DEPLOYMENT=<deployment-name>", err)
-		}
-		fmt.Printf("Compiling TSG via Azure OpenAI (%s)...\n", cfg.Deployment)
-	default:
-		return fmt.Errorf("unknown --llm backend %q (supported: azure, copilot)", compileLLM)
-	}
-	result, err := compiler.CompileTSG(tsgPath, client)
-	if err != nil {
-		return fmt.Errorf("compile: %w", err)
-	}
-	fmt.Printf("%d steps identified\n", result.StepCount)
-	fmt.Printf("  %d CLI steps, %d manual steps, %d TODOs\n",
-		result.CLICount, result.ManualCount, result.TODOCount)
-
-	// Write runbook
-	fmt.Printf("Generating %s... ", compileOut)
-	if err := compiler.WriteRunbook(result.Runbook, compileOut, compileForce); err != nil {
-		return fmt.Errorf("write runbook: %w", err)
-	}
-	fmt.Println("done")
-
-	// Write mapping report
-	fmt.Printf("Generating %s... ", compileMapping)
-	if err := compiler.WriteMapping(result.Mapping, compileMapping); err != nil {
-		return fmt.Errorf("write mapping: %w", err)
-	}
-	fmt.Println("done")
-
-	// Stage C: Post-compilation validation
-	fmt.Printf("Validating output... ")
-	_, errs := schema.ValidateFile(compileOut)
-	if hasValidationErrors(errs) {
-		fmt.Println("FAILED")
-		for _, e := range errs {
-			if e.Severity != "warning" {
-				fmt.Fprintf(os.Stderr, "  [%s] %s\n", e.Phase, e.Message)
-			}
-		}
-		return fmt.Errorf("generated runbook failed validation with %d error(s)", countValidationErrors(errs))
-	}
-	fmt.Println("passed")
-
-	if len(result.Warnings) > 0 {
-		fmt.Printf("\nWarnings (%d):\n", len(result.Warnings))
-		for _, w := range result.Warnings {
-			fmt.Printf("  ⚠ %s\n", w)
-		}
-		os.Exit(1) // Exit 1 = completed with warnings
-	}
-
-	return nil
-}
-
-// --- enrich ---
-
-var enrichCmd = &cobra.Command{
-	Use:   "enrich [runbook.yaml]",
-	Short: "Enrich a runbook with branches for scenario-discovered causes",
-	Long: `Analyze collected scenarios and add missing dispatch branches
-to the runbook for causes not currently covered.
-
-Scenarios are discovered at:
-  {runbook-dir}/scenarios/{runbook-name}/*/inputs.yaml
-
-For each scenario input value that doesn't match any existing branch
-condition, a new escalation branch is added.
-
-This command is idempotent — running it twice produces the same result.`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		result, err := compiler.EnrichFromScenarios(args[0])
-		if err != nil {
-			return err
-		}
-
-		fmt.Printf("Dispatch variable: %s (step: %s)\n", result.DispatchVar, result.DispatchStepID)
-		fmt.Printf("Existing branches: %d\n", len(result.ExistingValues))
-		fmt.Printf("Scenario values:   %d\n", len(result.ScenarioValues))
-
-		if len(result.AddedValues) == 0 {
-			fmt.Println("No missing branches — runbook already covers all scenario causes.")
-			return nil
-		}
-
-		fmt.Printf("Added branches:    %d\n", len(result.AddedValues))
-		for _, v := range result.AddedValues {
-			linked := ""
-			for _, l := range result.LinkedTSGs {
-				if l == v {
-					linked = " → TSG linked"
-					break
-				}
-			}
-			fmt.Printf("  + %s%s\n", v, linked)
-		}
-		if noPlan := len(result.AddedValues) - len(result.LinkedTSGs); noPlan > 0 {
-			fmt.Printf("\n  %d cause(s) have no dedicated TSG — marked (enriched)\n", noPlan)
-		}
-		if result.BoundRunbooks > 0 {
-			fmt.Printf("  %d branch(es) bound to compiled sub-runbooks (type: invoke)\n", result.BoundRunbooks)
-		}
-		fmt.Printf("\nEnriched runbook written to %s\n", result.RunbookPath)
-		return nil
-	},
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
 // --- schema export ---
 
 var schemaCmd = &cobra.Command{
@@ -775,16 +589,6 @@ func init() {
 	debugCmd.Flags().StringVar(&debugRebaseTime, "rebase-time", "", "Rebase scenario timestamps: 'now' or reference timestamp")
 	debugCmd.Flags().StringArrayVar(&debugVars, "var", nil, "Set a variable (key=value), repeatable")
 
-	// compile flags
-	compileCmd.Flags().StringVar(&compileOut, "out", "runbook.yaml", "Output path for the generated runbook")
-	compileCmd.Flags().StringVar(&compileMapping, "mapping", "mapping.md", "Output path for the mapping report")
-	compileCmd.Flags().StringVar(&compileEndpoint, "endpoint", "", "Azure OpenAI endpoint (overrides AZURE_OPENAI_ENDPOINT)")
-	compileCmd.Flags().StringVar(&compileAPIKey, "api-key", "", "Azure OpenAI API key (overrides AZURE_OPENAI_API_KEY)")
-	compileCmd.Flags().StringVar(&compileDeployment, "deployment", "", "Azure OpenAI deployment name (overrides AZURE_OPENAI_DEPLOYMENT)")
-	compileCmd.Flags().StringVar(&compileAPIVersion, "api-version", "", "Azure OpenAI API version (overrides AZURE_OPENAI_API_VERSION)")
-	compileCmd.Flags().StringVar(&compileLLM, "llm", "", "LLM backend: azure (default), copilot")
-	compileCmd.Flags().BoolVar(&compileForce, "force", false, "Force overwrite even if the new runbook has fewer steps")
-
 	// schema subcommands
 	schemaCmd.AddCommand(schemaExportCmd)
 
@@ -792,13 +596,11 @@ func init() {
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(execCmd)
 	rootCmd.AddCommand(debugCmd)
-	rootCmd.AddCommand(compileCmd)
 	rootCmd.AddCommand(schemaCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(migrateCmd)
-	rootCmd.AddCommand(enrichCmd)
 	rootCmd.AddCommand(tuiCmd)
 
 	// tui flags

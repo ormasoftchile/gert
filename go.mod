@@ -12,7 +12,6 @@ require (
 	github.com/invopop/jsonschema v0.13.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.2
-	github.com/yuin/goldmark v1.7.16
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -49,6 +48,7 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	github.com/yuin/goldmark v1.7.16 // indirect
 	github.com/yuin/goldmark-emoji v1.0.5 // indirect
 	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
