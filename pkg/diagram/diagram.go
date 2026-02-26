@@ -190,44 +190,72 @@ func generateASCII(rb *schema.Runbook) string {
 		return b.String()
 	}
 
-	// Header
-	header := "  " + name + "  "
-	border := strings.Repeat("═", len(header))
-	b.WriteString("╔" + border + "╗\n")
-	b.WriteString("║" + header + "║\n")
-	mid := len(header) / 2
-	b.WriteString("╚" + strings.Repeat("═", mid) + "╤" + strings.Repeat("═", len(header)-mid-1) + "╝\n")
-	indent := strings.Repeat(" ", mid+1)
-	b.WriteString(indent + "│\n")
+	// Compute uniform box width so every box and connector aligns.
+	const indent = 8
+	boxWidth := computeUniformBoxWidth(steps, name)
+	connCol := indent + 1 + boxWidth/2 // +1 accounts for the └/┌ border character
+	pad := strings.Repeat(" ", indent)
+	connPad := strings.Repeat(" ", connCol)
+
+	// Header — same width as body boxes, name centered.
+	headerText := centerPad(name, boxWidth)
+	mid := boxWidth / 2
+	b.WriteString(pad + "╔" + strings.Repeat("═", boxWidth) + "╗\n")
+	b.WriteString(pad + "║" + headerText + "║\n")
+	b.WriteString(pad + "╚" + strings.Repeat("═", mid) + "╤" + strings.Repeat("═", boxWidth-mid-1) + "╝\n")
+	b.WriteString(connPad + "│\n")
 
 	for i, s := range steps {
-		writeASCIIStep(&b, s, 8)
+		writeASCIIStep(&b, s, indent, boxWidth)
 
 		// Branches
 		if len(s.branches) > 0 {
-			b.WriteString("                │\n")
-			b.WriteString("          ┌─────◇─────┐\n")
+			b.WriteString(connPad + "│\n")
+
+			// Collect all branch content lines to compute box width.
+			var brLines []string
 			for _, br := range s.branches {
 				label := br.label
 				if label == "" {
 					label = truncate(br.condition, 28)
 				}
-				b.WriteString(fmt.Sprintf("          │ %s\n", label))
+				brLines = append(brLines, " "+label+" ")
 				for _, bs := range flattenTree(br.steps) {
 					icon := stepIcon(bs.stepType)
-					b.WriteString(fmt.Sprintf("          │  %s %s\n", icon, bs.title))
+					brLines = append(brLines, "  "+icon+" "+bs.title+" ")
 				}
 			}
-			b.WriteString("          └─────┬─────┘\n")
+
+			// Branch box width = widest content line, minimum 9 (for diamond)
+			brWidth := 9
+			for _, l := range brLines {
+				if w := runewidth.StringWidth(l); w > brWidth {
+					brWidth = w
+				}
+			}
+			// Ensure odd width so ◇ and ┬ land at center
+			if brWidth%2 == 0 {
+				brWidth++
+			}
+			brHalf := brWidth / 2
+
+			brPad := strings.Repeat(" ", connCol-brHalf-1)
+			b.WriteString(brPad + "┌" + strings.Repeat("─", brHalf) + "◇" + strings.Repeat("─", brHalf) + "┐\n")
+			for _, l := range brLines {
+				lw := runewidth.StringWidth(l)
+				b.WriteString(brPad + "│" + l + strings.Repeat(" ", brWidth-lw) + "│\n")
+			}
+			b.WriteString(brPad + "└" + strings.Repeat("─", brHalf) + "┬" + strings.Repeat("─", brHalf) + "┘\n")
 		}
 
 		// Connector
 		if i < len(steps)-1 || len(s.outcomes) > 0 {
-			b.WriteString("                │\n")
+			b.WriteString(connPad + "│\n")
 		}
 	}
 
 	// Outcomes
+	outPad := strings.Repeat(" ", connCol-2)
 	for _, s := range steps {
 		for _, o := range s.outcomes {
 			icon := "✅"
@@ -247,14 +275,65 @@ func generateASCII(rb *schema.Runbook) string {
 			if rec != "" {
 				rec = " — " + truncate(rec, 40)
 			}
-			b.WriteString(fmt.Sprintf("          %s %s%s\n", icon, label, rec))
+			b.WriteString(outPad + icon + " " + label + rec + "\n")
 		}
 	}
 
 	return b.String()
 }
 
-func writeASCIIStep(b *strings.Builder, s diagramStep, indent int) {
+// computeUniformBoxWidth returns the widest interior width needed
+// across all steps and the header name.
+func computeUniformBoxWidth(steps []diagramStep, name string) int {
+	minWidth := 22
+	w := minWidth
+
+	// Header name with padding
+	nameWidth := runewidth.StringWidth(name) + 4 // "  name  "
+	if nameWidth > w {
+		w = nameWidth
+	}
+
+	for _, s := range steps {
+		sw := stepContentWidth(s)
+		if sw > w {
+			w = sw
+		}
+	}
+	return w
+}
+
+// stepContentWidth returns the interior width a single step box needs.
+func stepContentWidth(s diagramStep) int {
+	icon := stepIcon(s.stepType)
+	label := s.title
+	if label == "" {
+		label = s.id
+	}
+	content := fmt.Sprintf(" %s %s ", icon, label)
+	w := runewidth.StringWidth(content)
+	if s.capture != "" {
+		capLine := " → " + s.capture
+		if cw := runewidth.StringWidth(capLine); cw > w {
+			w = cw
+		}
+	}
+	return w
+}
+
+// centerPad centers s within width using spaces, based on display width.
+func centerPad(s string, width int) string {
+	sw := runewidth.StringWidth(s)
+	if sw >= width {
+		return s
+	}
+	total := width - sw
+	left := total / 2
+	right := total - left
+	return strings.Repeat(" ", left) + s + strings.Repeat(" ", right)
+}
+
+func writeASCIIStep(b *strings.Builder, s diagramStep, indent, boxWidth int) {
 	icon := stepIcon(s.stepType)
 	label := s.title
 	if label == "" {
@@ -263,16 +342,6 @@ func writeASCIIStep(b *strings.Builder, s diagramStep, indent int) {
 
 	content := fmt.Sprintf(" %s %s ", icon, label)
 	contentWidth := runewidth.StringWidth(content)
-	boxWidth := contentWidth
-	if s.capture != "" {
-		capLine := " → " + s.capture
-		if w := runewidth.StringWidth(capLine); w > boxWidth {
-			boxWidth = w
-		}
-	}
-	if boxWidth < 22 {
-		boxWidth = 22
-	}
 
 	pad := strings.Repeat(" ", indent)
 	topBot := strings.Repeat("─", boxWidth)
@@ -282,7 +351,8 @@ func writeASCIIStep(b *strings.Builder, s diagramStep, indent int) {
 	b.WriteString(pad + "│" + content + strings.Repeat(" ", boxWidth-contentWidth) + "│\n")
 	if s.capture != "" {
 		capLine := " → " + s.capture
-		b.WriteString(pad + "│" + capLine + strings.Repeat(" ", boxWidth-runewidth.StringWidth(capLine)) + "│\n")
+		capWidth := runewidth.StringWidth(capLine)
+		b.WriteString(pad + "│" + capLine + strings.Repeat(" ", boxWidth-capWidth) + "│\n")
 	}
 	b.WriteString(pad + "└" + strings.Repeat("─", mid) + "┬" + strings.Repeat("─", boxWidth-mid-1) + "┘\n")
 }
