@@ -91,6 +91,9 @@ type Model struct {
 	pendingStep  string // stepID that is awaiting user action
 	fatalErr     string
 
+	// Step type tracking (for auto-advance decisions)
+	stepTypes map[string]string
+
 	// Vars display
 	varsText string
 
@@ -160,15 +163,16 @@ func Run(cfg Config) error {
 	sp.Style = spinnerStyle
 
 	m := Model{
-		steps:    newStepsPanel(),
-		output:   newOutputPanel(),
-		detail:   newDetailBar(),
-		spinner:  sp,
-		evidence: newEvidenceOverlay(),
-		choice:   newChoiceOverlay(),
-		summary:  newSummaryOverlay(),
-		search:   newSearchBar(),
-		client:   client,
+		steps:     newStepsPanel(),
+		output:    newOutputPanel(),
+		detail:    newDetailBar(),
+		spinner:   sp,
+		evidence:  newEvidenceOverlay(),
+		choice:    newChoiceOverlay(),
+		summary:   newSummaryOverlay(),
+		search:    newSearchBar(),
+		client:    client,
+		stepTypes: make(map[string]string),
 
 		runbook:     cfg.Runbook,
 		mode:        cfg.Mode,
@@ -268,7 +272,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.running = true
 		m.runID = msg.result.RunID
 		m.startTime = time.Now()
-		m.steps.SetSteps(msg.result.Steps)
+
+		// Build step list from tree if available (Fix 4: branch-aware sidebar)
+		if len(msg.result.Tree) > 0 {
+			var tree []treeNode
+			if err := json.Unmarshal(msg.result.Tree, &tree); err == nil && len(tree) > 0 {
+				m.steps.BuildFromTree(tree)
+			} else {
+				m.steps.SetSteps(msg.result.Steps)
+			}
+		} else {
+			m.steps.SetSteps(msg.result.Steps)
+		}
 		m.layoutPanels()
 
 		// Auto-advance first step
@@ -346,7 +361,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case serverEventMsg:
-		m.handleServerEvent(msg)
+		cmd := m.handleServerEvent(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		// Continue listening for more events
 		cmds = append(cmds, m.listenForEvents())
 
@@ -485,12 +503,17 @@ func matchKey(msg tea.KeyMsg, binding key.Binding) bool {
 }
 
 // handleServerEvent processes a JSON-RPC notification from the server.
-func (m *Model) handleServerEvent(ev serverEventMsg) {
+// Returns a tea.Cmd if follow-up action is needed (e.g. auto-advance).
+func (m *Model) handleServerEvent(ev serverEventMsg) tea.Cmd {
 	switch ev.Method {
 	case "event/stepStarted":
 		var step stepEvent
 		if err := json.Unmarshal(ev.Params, &step); err != nil {
-			return
+			return nil
+		}
+		// Track step type for auto-advance decisions (Fix 2)
+		if step.Type != "" {
+			m.stepTypes[step.StepID] = step.Type
 		}
 		// Dynamically add steps not in the initial list (iterate expansions, invoked children)
 		if !m.steps.HasStep(step.StepID) {
@@ -517,7 +540,7 @@ func (m *Model) handleServerEvent(ev serverEventMsg) {
 	case "event/stepCompleted":
 		var step stepEvent
 		if err := json.Unmarshal(ev.Params, &step); err != nil {
-			return
+			return nil
 		}
 
 		status := statusPassed
@@ -546,13 +569,18 @@ func (m *Model) handleServerEvent(ev serverEventMsg) {
 			m.output.AppendOutput(step.StepID, capText)
 		}
 
-		// Auto-advance: send next after a completed step
+		// Auto-advance: if step passed and is not manual, advance automatically (Fix 2)
+		// This matches the VS Code extension's animated auto-advance behavior.
 		m.running = false
+		if step.Status == "passed" && m.stepTypes[step.StepID] != "manual" {
+			m.running = true
+			return m.advanceStep()
+		}
 
 	case "event/stepSkipped":
 		var step stepEvent
 		if err := json.Unmarshal(ev.Params, &step); err != nil {
-			return
+			return nil
 		}
 		m.steps.SetStatus(step.StepID, statusSkipped)
 		reason := "condition not met"
@@ -565,7 +593,7 @@ func (m *Model) handleServerEvent(ev serverEventMsg) {
 	case "event/outcomeReached":
 		var oc outcomeEvent
 		if err := json.Unmarshal(ev.Params, &oc); err != nil {
-			return
+			return nil
 		}
 		m.steps.SetStatus(oc.StepID, statusOutcome)
 		m.detail.SetOutcome(oc.State, oc.Recommendation)
@@ -577,7 +605,7 @@ func (m *Model) handleServerEvent(ev serverEventMsg) {
 	case "event/invokeStarted":
 		var step stepEvent
 		if err := json.Unmarshal(ev.Params, &step); err != nil {
-			return
+			return nil
 		}
 		m.output.AppendOutput(step.StepID,
 			fmt.Sprintf("\n  ▶ Invoking child runbook...\n"))
@@ -585,7 +613,7 @@ func (m *Model) handleServerEvent(ev serverEventMsg) {
 	case "event/invokeCompleted":
 		var step stepEvent
 		if err := json.Unmarshal(ev.Params, &step); err != nil {
-			return
+			return nil
 		}
 		m.output.AppendOutput(step.StepID,
 			fmt.Sprintf("  ◀ Child runbook completed\n"))
@@ -600,7 +628,7 @@ func (m *Model) handleServerEvent(ev serverEventMsg) {
 		// Evidence / approval prompt from ServeCollector
 		var req evidenceRequestMsg
 		if err := json.Unmarshal(ev.Params, &req); err != nil {
-			return
+			return nil
 		}
 		stepID := m.pendingStep
 		if stepID == "" {
@@ -614,6 +642,7 @@ func (m *Model) handleServerEvent(ev serverEventMsg) {
 		m.output.AppendOutput(stepID, label)
 
 	}
+	return nil
 }
 
 // submitEvidence collects the evidence overlay value and sends it to the server.
@@ -796,12 +825,10 @@ func (m Model) View() string {
 		return errorStyle.Render("Fatal: "+m.fatalErr) + "\n\nPress q to quit."
 	}
 
-	// Overlay views take over the full screen
+	// Overlay views take over the full screen (except choice — rendered inline)
 	switch m.overlay {
 	case overlayEvidence:
 		return m.evidence.View()
-	case overlayChoice:
-		return m.choice.View()
 	case overlayVars:
 		return m.renderVarsOverlay()
 	case overlaySummary:
@@ -811,17 +838,24 @@ func (m Model) View() string {
 	// Header
 	header := m.renderHeader()
 
-	// Main panels
+	// Main panels — choice overlay renders inline beside the sidebar (Fix 1)
 	var main string
 	if m.width > 0 {
 		if m.compact {
-			// Compact mode: output only, step info in header
-			outputView := m.output.View()
-			main = outputView
+			if m.overlay == overlayChoice {
+				main = m.choice.ViewInline(m.width, m.output.height)
+			} else {
+				main = m.output.View()
+			}
 		} else {
 			stepsView := m.steps.View()
-			outputView := m.output.View()
-			main = lipgloss.JoinHorizontal(lipgloss.Top, stepsView, outputView)
+			var rightView string
+			if m.overlay == overlayChoice {
+				rightView = m.choice.ViewInline(m.output.width, m.output.height)
+			} else {
+				rightView = m.output.View()
+			}
+			main = lipgloss.JoinHorizontal(lipgloss.Top, stepsView, rightView)
 		}
 	}
 

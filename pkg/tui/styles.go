@@ -141,6 +141,13 @@ var outcomeBannerStyle = lipgloss.NewStyle().
 	Padding(0, 2).
 	Align(lipgloss.Center)
 
+// --- Outcome title (distinct from choice title) ---
+
+var outcomeTitleStyle = lipgloss.NewStyle().
+	Bold(true).
+	Foreground(colorCyan).
+	Padding(0, 1)
+
 // --- Error style ---
 
 var errorStyle = lipgloss.NewStyle().

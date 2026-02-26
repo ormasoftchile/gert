@@ -21,12 +21,14 @@ const (
 
 // stepInfo holds the display state for a single step.
 type stepInfo struct {
-	ID     string
-	Title  string
-	Type   string
-	Status stepStatus
-	Error  string
-	Depth  int // invoke nesting depth
+	ID          string
+	Title       string
+	Type        string
+	Status      stepStatus
+	Error       string
+	Depth       int  // invoke/branch nesting depth
+	IsBranch    bool // true for branch header rows (not real steps)
+	BranchLabel string
 }
 
 // stepsPanel renders the scrollable step list.
@@ -54,6 +56,42 @@ func (p *stepsPanel) SetSteps(summaries []stepSummary) {
 			Title:  s.Title,
 			Type:   s.Type,
 			Status: statusPending,
+		}
+	}
+}
+
+// BuildFromTree builds the step list from a tree structure, preserving
+// branch headers and depth for visual hierarchy (matches VS Code workflow map).
+func (p *stepsPanel) BuildFromTree(nodes []treeNode) {
+	p.steps = nil
+	p.buildTreeRecursive(nodes, 0)
+}
+
+func (p *stepsPanel) buildTreeRecursive(nodes []treeNode, depth int) {
+	for _, node := range nodes {
+		if node.Step != nil {
+			p.steps = append(p.steps, stepInfo{
+				ID:     node.Step.ID,
+				Title:  node.Step.Title,
+				Type:   node.Step.Type,
+				Status: statusPending,
+				Depth:  depth,
+			})
+		}
+		for _, branch := range node.Branches {
+			label := branch.Label
+			if label == "" {
+				label = branch.Condition
+			}
+			p.steps = append(p.steps, stepInfo{
+				IsBranch:    true,
+				BranchLabel: label,
+				Depth:       depth,
+			})
+			p.buildTreeRecursive(branch.Steps, depth+1)
+		}
+		if node.Iterate != nil {
+			p.buildTreeRecursive(node.Iterate.Steps, depth+1)
 		}
 	}
 }
@@ -103,20 +141,26 @@ func (p *stepsPanel) SetStepError(stepID, errMsg string) {
 	}
 }
 
-// CursorUp moves the browsing cursor up.
+// CursorUp moves the browsing cursor up, skipping branch headers.
 func (p *stepsPanel) CursorUp() {
-	if p.cursor > 0 {
+	for p.cursor > 0 {
 		p.cursor--
-		p.ensureVisible()
+		if !p.steps[p.cursor].IsBranch {
+			break
+		}
 	}
+	p.ensureVisible()
 }
 
-// CursorDown moves the browsing cursor down.
+// CursorDown moves the browsing cursor down, skipping branch headers.
 func (p *stepsPanel) CursorDown() {
-	if p.cursor < len(p.steps)-1 {
+	for p.cursor < len(p.steps)-1 {
 		p.cursor++
-		p.ensureVisible()
+		if !p.steps[p.cursor].IsBranch {
+			break
+		}
 	}
+	p.ensureVisible()
 }
 
 // SelectedID returns the step ID at the cursor position.
@@ -159,6 +203,16 @@ func (p *stepsPanel) View() string {
 
 	for i := p.offset; i < end; i++ {
 		step := p.steps[i]
+
+		// Branch header rows
+		if step.IsBranch {
+			indent := strings.Repeat("  ", step.Depth)
+			connector := "▼"
+			style := lipgloss.NewStyle().Foreground(colorBlue).Bold(true)
+			line := fmt.Sprintf(" %s %s%s", connector, indent, step.BranchLabel)
+			lines = append(lines, style.Render(line))
+			continue
+		}
 
 		// Glyph and style based on status
 		var glyph string

@@ -156,22 +156,34 @@ func (c *choiceOverlay) SelectedOutcome() string {
 	return ""
 }
 
-// View renders the choice overlay.
+// View renders the choice overlay as a full-screen centered box (legacy).
 func (c *choiceOverlay) View() string {
+	return c.ViewInline(c.width, c.height)
+}
+
+// ViewInline renders the choice/outcome selector inside a bordered panel
+// that can be placed beside the step sidebar (no full-screen takeover).
+func (c *choiceOverlay) ViewInline(width, height int) string {
 	if !c.visible {
 		return ""
 	}
 
-	contentW := c.width - 4
+	contentW := width - 4
 	if contentW < 50 {
 		contentW = 50
 	}
 
 	var b strings.Builder
 
-	b.WriteString(overlayTitle.Render(c.title))
+	// Distinct title for outcomes vs choices (Fix 3)
+	if c.isOutcome {
+		b.WriteString(outcomeTitleStyle.Render("◆ SELECT OUTCOME"))
+	} else {
+		b.WriteString(panelTitle.Render("Choose: " + c.stepID))
+	}
 	b.WriteString("\n\n")
 
+	// Show instructions above options (Fix 5)
 	if c.instructions != "" {
 		b.WriteString(c.instructions)
 		b.WriteString("\n")
@@ -202,7 +214,7 @@ func (c *choiceOverlay) View() string {
 	content := b.String()
 
 	// Scroll support for tall content
-	maxH := c.height - 6 // leave room for border + chrome
+	maxH := height - 6 // leave room for border + chrome
 	lines := strings.Split(content, "\n")
 	if len(lines) > maxH {
 		if c.scrollOff > len(lines)-maxH {
@@ -215,8 +227,7 @@ func (c *choiceOverlay) View() string {
 		content = strings.Join(lines, "\n")
 	}
 
-	box := overlayBorder.Width(contentW).Render(content)
-	return lipgloss.Place(c.width, c.height, lipgloss.Center, lipgloss.Center, box)
+	return panelBorder.Width(width).Height(height).Render(content)
 }
 
 func (c *choiceOverlay) renderChoiceItem(idx int, opt choiceOption) string {

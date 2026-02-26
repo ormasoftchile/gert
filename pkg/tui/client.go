@@ -35,10 +35,38 @@ type stepSummary struct {
 
 // startResult is the response from exec/start.
 type startResult struct {
-	RunID     string        `json:"runId"`
-	BaseDir   string        `json:"baseDir"`
-	StepCount int           `json:"stepCount"`
-	Steps     []stepSummary `json:"steps"`
+	RunID     string            `json:"runId"`
+	BaseDir   string            `json:"baseDir"`
+	StepCount int               `json:"stepCount"`
+	Steps     []stepSummary     `json:"steps"`
+	Tree      json.RawMessage   `json:"tree,omitempty"`
+}
+
+// --- Tree node types for workflow structure ---
+
+type treeNode struct {
+	Step     *treeStep    `json:"step,omitempty"`
+	Branches []treeBranch `json:"branches,omitempty"`
+	Iterate  *treeIter    `json:"iterate,omitempty"`
+}
+
+type treeStep struct {
+	ID       string           `json:"id"`
+	Title    string           `json:"title"`
+	Type     string           `json:"type"`
+	Outcomes []outcomeOption  `json:"outcomes,omitempty"`
+}
+
+type treeBranch struct {
+	Label     string     `json:"label"`
+	Condition string     `json:"condition"`
+	Steps     []treeNode `json:"steps"`
+}
+
+type treeIter struct {
+	Steps []treeNode `json:"steps"`
+	Max   int        `json:"max,omitempty"`
+	Until string     `json:"until,omitempty"`
 }
 
 // stepEvent is the payload for event/stepStarted and event/stepCompleted.
