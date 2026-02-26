@@ -138,6 +138,31 @@
           "type": "boolean",
           "default": true,
           "description": "Show TSG and step numbers (1. TSG Name, 1.1 Step, 1.2 Step, 2.1 Step, etc.) in the workflow map."
+        },
+        "gert.debugTrace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Master toggle: when enabled, show all debug sections (captures, outcome conditions). Overrides individual toggles."
+        },
+        "gert.showCaptures": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the Captures section below the active step."
+        },
+        "gert.showOutcomeConditions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the 'when' expressions on possible outcomes."
+        },
+        "gert.showCopySummary": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the 'Copy Summary' button on outcome/complete screens."
+        },
+        "gert.showSaveForReplay": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the 'Save for Replay' button on outcome/complete screens."
         }
       }
     }

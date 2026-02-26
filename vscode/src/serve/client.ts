@@ -23,11 +23,20 @@ export interface StepSummary {
   hasOutcomes?: boolean;
 }
 
+export interface DisplayConfig {
+  debugTrace?: boolean;
+  captures?: boolean;
+  outcomeConditions?: boolean;
+  copySummary?: boolean;
+  saveForReplay?: boolean;
+}
+
 export interface StartResult {
   runId: string;
   baseDir: string;
   stepCount: number;
   steps: StepSummary[];
+  display?: DisplayConfig;
 }
 
 export interface StepEvent {
@@ -166,6 +175,7 @@ export class GertClient {
     scenarioDir?: string;
     rebaseTime?: string;
     actor?: string;
+    display?: DisplayConfig;
   }): Promise<StartResult> {
     return this.request<StartResult>('exec/start', params);
   }

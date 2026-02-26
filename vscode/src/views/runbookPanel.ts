@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import hljs from 'highlight.js/lib/core';
 import hljsSql from 'highlight.js/lib/languages/sql';
 import { marked } from 'marked';
-import { GertClient, StepSummary, RPCMessage, StartResult } from '../serve/client';
+import { GertClient, StepSummary, RPCMessage, StartResult, DisplayConfig } from '../serve/client';
 
 // Register SQL language (covers T-SQL, KQL basics)
 hljs.registerLanguage('sql', hljsSql);
@@ -96,6 +96,7 @@ export class RunbookPanel {
   private mapWidth: string = '260px'; // persisted workflow map width
   private prose: any = null; // prose sections from runbook meta
   private runbookDescription: string = ''; // meta.description
+  private displayConfig: DisplayConfig = {}; // display preferences from settings → server → UI gating
   private highlightDecoration = vscode.window.createTextEditorDecorationType({
     backgroundColor: new vscode.ThemeColor('editor.findMatchHighlightBackground'),
     isWholeLine: true,
@@ -120,6 +121,34 @@ export class RunbookPanel {
       this.disposed = true;
       client.shutdown();
     });
+  }
+
+  /** Read display preferences from VS Code settings. */
+  private static readDisplaySettings(): DisplayConfig {
+    const cfg = vscode.workspace.getConfiguration('gert');
+    return {
+      debugTrace: cfg.get<boolean>('debugTrace'),
+      captures: cfg.get<boolean>('showCaptures'),
+      outcomeConditions: cfg.get<boolean>('showOutcomeConditions'),
+      copySummary: cfg.get<boolean>('showCopySummary'),
+      saveForReplay: cfg.get<boolean>('showSaveForReplay'),
+    };
+  }
+
+  /** Resolve effective visibility: debugTrace=true overrides captures & outcomeConditions to true. */
+  private showCaptures(): boolean {
+    if (this.displayConfig.debugTrace) return true;
+    return this.displayConfig.captures ?? false;
+  }
+  private showOutcomeConditions(): boolean {
+    if (this.displayConfig.debugTrace) return true;
+    return this.displayConfig.outcomeConditions ?? false;
+  }
+  private showCopySummary(): boolean {
+    return this.displayConfig.copySummary ?? true;
+  }
+  private showSaveForReplay(): boolean {
+    return this.displayConfig.saveForReplay ?? true;
   }
 
   /**
@@ -184,14 +213,17 @@ export class RunbookPanel {
       const wsFolder = vscode.workspace.getWorkspaceFolder(runbookUri);
       const cwd = wsFolder ? wsFolder.uri.fsPath : require('path').dirname(runbookPath);
 
+      const displaySettings = RunbookPanel.readDisplaySettings();
       const result = await client.execStart({
         runbook: runbookPath,
         mode,
         vars,
         cwd,
         scenarioDir: options?.scenarioDir,
+        display: displaySettings,
       });
 
+      rbPanel.displayConfig = (result as any).display || displaySettings;
       rbPanel.steps = result.steps || [];
       rbPanel.tree = (result as any).tree || [];
       rbPanel.runbookKind = (result as any).kind || 'mitigation';
@@ -553,7 +585,9 @@ export class RunbookPanel {
             vars: childVars,
             cwd: childCwd,
             scenarioDir: parentScenarioDir,
+            display: RunbookPanel.readDisplaySettings(),
           });
+          this.displayConfig = (result as any).display || this.displayConfig;
           this.gertCwd = childCwd;
 
           // 4. Update panel state for the child TSG (WITHOUT clearing chain history)
@@ -734,7 +768,9 @@ export class RunbookPanel {
             vars: args.vars,
             cwd: restartCwd,
             scenarioDir: args.options?.scenarioDir,
+            display: RunbookPanel.readDisplaySettings(),
           });
+          this.displayConfig = (result as any).display || RunbookPanel.readDisplaySettings();
           this.gertCwd = restartCwd;
 
           // Reset all state — restore original creation args
@@ -979,6 +1015,7 @@ export class RunbookPanel {
             <span class="type-badge outcome">${badge}</span>
             <span class="step-name">${hl}</span>
           </div>
+          ${detail?.instructions ? `<div class="instructions" style="margin:12px 0">${this.renderMarkdownish(detail.instructions)}</div>` : ''}
           ${this.chainHistory.length > 0 ? (() => {
           const showNums = vscode.workspace.getConfiguration('gert').get<boolean>('showStepNumbers', true);
           return `
@@ -1011,8 +1048,8 @@ export class RunbookPanel {
             <button class="btn btn-primary" onclick="chainToRunbook()">Continue to TSG →</button>
           </div>` : ''}
           <div class="actions" style="margin-top:16px">
-            <button class="btn btn-primary" onclick="copySummary()">📋 Copy Summary</button>
-            ${this.creationArgs?.mode !== 'replay' ? '<button class="btn btn-secondary" onclick="saveForReplay()" style="margin-left:8px">💾 Save for Replay</button>' : ''}
+            ${this.showCopySummary() ? '<button class="btn btn-primary" onclick="copySummary()">📋 Copy Summary</button>' : ''}
+            ${this.showSaveForReplay() && this.creationArgs?.mode !== 'replay' ? '<button class="btn btn-secondary" onclick="saveForReplay()" style="margin-left:8px">💾 Save for Replay</button>' : ''}
           </div>
           <textarea id="summaryText" style="position:absolute;left:-9999px">${escapeHtml(summaryText)}</textarea>
         </div>`;
@@ -1026,8 +1063,8 @@ export class RunbookPanel {
           </div>
           <div class="outcome-recommendation-full">All steps have been completed.</div>
           <div class="actions" style="margin-top:16px">
-            <button class="btn btn-primary" onclick="copySummary()">📋 Copy Summary</button>
-            ${this.creationArgs?.mode !== 'replay' ? '<button class="btn btn-secondary" onclick="saveForReplay()" style="margin-left:8px">💾 Save for Replay</button>' : ''}
+            ${this.showCopySummary() ? '<button class="btn btn-primary" onclick="copySummary()">📋 Copy Summary</button>' : ''}
+            ${this.showSaveForReplay() && this.creationArgs?.mode !== 'replay' ? '<button class="btn btn-secondary" onclick="saveForReplay()" style="margin-left:8px">💾 Save for Replay</button>' : ''}
           </div>
           <textarea id="summaryText" style="position:absolute;left:-9999px">${escapeHtml(completeSummary)}</textarea>
         </div>`;
@@ -1058,9 +1095,9 @@ export class RunbookPanel {
       activeStepHtml = `<div class="no-step">Starting execution...</div>`;
     }
 
-    // Captures section
+    // Captures section (gated by display config)
     const captureEntries = Object.entries(this.captures);
-    const capturesHtml = captureEntries.length > 0
+    const capturesHtml = this.showCaptures() && captureEntries.length > 0
       ? `<div class="captures-section">
           <h3>Captures</h3>
           ${captureEntries.map(([k, v]) =>
@@ -1361,14 +1398,14 @@ ${chainBreadcrumb}
       }
       const disabledAttr = '';
       if (isManual && hasOutcomes) {
-        // Show outcome choice buttons
+        // Show outcome choice buttons (no generic "Continue")
         const buttons = detail.outcomes.map((o: any) => {
           const cls = o.state === 'resolved' ? 'btn-resolved' : o.state === 'escalated' ? 'btn-escalated' : 'btn-secondary';
-          return `<button class="btn ${cls}" onclick="chooseOutcome('${escapeHtml(detail.stepId)}', '${o.state}')">${o.state.toUpperCase()}</button>`;
+          return `<button class="btn ${cls}" onclick="chooseOutcome('${escapeHtml(detail.stepId)}', '${o.state}')">${outcomeButtonLabel(o.state)}</button>`;
         }).join('');
         return `<div class="outcome-choice">
           <div class="outcome-choice-label">Select outcome:</div>
-          <div class="actions">${buttons}<button class="btn btn-primary" onclick="nextStep()">Continue →</button></div>
+          <div class="actions">${buttons}</div>
         </div>`;
       }
       // Show choice selector if step has choices
@@ -2083,7 +2120,7 @@ ${chainBreadcrumb}
       for (const o of step.outcomes) {
         if (o.recommendation) {
           const stateLabel = o.state === 'no_action' ? 'If no issues found' :
-                            o.state === 'escalated' ? 'Escalation' :
+                            o.state === 'escalated' ? 'Request Assistance' :
                             o.state === 'resolved' ? 'Resolution' : o.state;
           const resolvedRec = this.resolveTemplateVars(o.recommendation);
           html += `<blockquote><strong>${this.escapeForProse(stateLabel)}:</strong> ${this.renderProseMarkdown(resolvedRec)}</blockquote>\n`;
@@ -2467,6 +2504,8 @@ ${chainBreadcrumb}
     if (!outcomes || outcomes.length === 0) return '';
     // If step already passed (no outcome fired), hide outcomes — they're visible in the workflow map
     if (stepState === 'passed') return '';
+    // Gate by display config
+    if (!this.showOutcomeConditions()) return '';
     // For running/pending steps, show what outcomes are possible (without recommendation text)
     return `<div class="outcomes-section">
       <h3>Possible Outcomes</h3>
@@ -2564,8 +2603,19 @@ function outcomeHeadline(state: string): string {
   switch (state) {
     case 'resolved':   return 'RESOLVED';
     case 'no_action':  return 'NO ACTION NEEDED';
-    case 'escalated':  return 'RECOMMEND: ESCALATE';
+    case 'escalated':  return 'REQUEST ASSISTANCE';
     case 'needs_rca':  return 'RECOMMEND: NEEDS RCA';
+    default:           return state.toUpperCase();
+  }
+}
+
+/** Human-friendly button label for outcome states. */
+function outcomeButtonLabel(state: string): string {
+  switch (state) {
+    case 'resolved':   return 'RESOLVED';
+    case 'escalated':  return 'REQUEST ASSISTANCE';
+    case 'no_action':  return 'NO ACTION';
+    case 'needs_rca':  return 'NEEDS RCA';
     default:           return state.toUpperCase();
   }
 }
