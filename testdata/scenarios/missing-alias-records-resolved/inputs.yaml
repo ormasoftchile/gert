@@ -1,6 +1,0 @@
-server_name: contoso-sql-prod
-database_name: ContosoAppDB
-environment: ProdEus1a
-time_window: 24h
-bad_cache_instance_name: CacheInstance-EUS1A-02
-good_cache_instance_name: CacheInstance-EUS1A-01

@@ -1,8 +1,0 @@
-apiVersion: runbook/v0
-meta:
-  name: minimal-runbook
-steps:
-  - id: step_one
-    type: cli
-    with:
-      argv: ["echo", "hello"]

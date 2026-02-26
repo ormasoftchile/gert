@@ -1,5 +1,0 @@
-description: "Tool step fails when command exits with non-zero code"
-expected_outcome: ""
-tags:
-  - tool
-  - error

@@ -1,7 +1,0 @@
-# ICM 749143635 — LoginFailureCause: IsLandingOnWrongNodeCausedByGWBypassing
-# State: MITIGATED | Severity: Sev-3
-# Region: ProdWus2a
-server_name: "sql-wus2-tlsca-prod-01"
-database_name: "sqldbejbca"
-environment: "ProdWus2a"
-login_failure_cause: "IsLandingOnWrongNodeCausedByGWBypassing"

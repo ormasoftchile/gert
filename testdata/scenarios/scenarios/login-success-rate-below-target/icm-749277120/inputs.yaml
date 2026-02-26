@@ -1,7 +1,0 @@
-# ICM 749277120 — LoginFailureCause: IsLongRunningRecovery
-# State: RESOLVED | Severity: Sev-3
-# Region: ProdWus1a
-server_name: "yte1r9xcyr"
-database_name: "PROD-BY3-002-SbPushRegistrationDatabase-4d0c71cf291f453fb46be028fa774dd0-29"
-environment: "ProdWus1a"
-login_failure_cause: "IsLongRunningRecovery"

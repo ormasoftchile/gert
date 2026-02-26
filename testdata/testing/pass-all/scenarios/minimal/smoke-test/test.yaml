@@ -1,8 +1,0 @@
-expected_outcome: completed
-expected_captures:
-  output: "hello"
-must_reach:
-  - step_one
-expected_step_status:
-  step_one: passed
-description: "Minimal smoke test — echo hello"

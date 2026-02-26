@@ -1,7 +1,0 @@
-# ICM 749564487 — LoginFailureCause: LoginErrorsFound_40613_127
-# State: ACTIVE | Severity: Sev-3
-# Region: ProdInCe1a
-server_name: "spartan-srv-ind-bcprodasia-9b67832a4d90"
-database_name: "db_bcprodasia_t04172511_20250927_03013242_082d"
-environment: "ProdInCe1a"
-login_failure_cause: "LoginErrorsFound_40613_127"

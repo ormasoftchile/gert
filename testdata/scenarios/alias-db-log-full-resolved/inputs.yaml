@@ -1,5 +1,0 @@
-cluster_name: cr13.eastus1-a.control.database.windows.net
-app_name: f2b2ca9a303d
-environment: ProdEus1a
-mitigation_time: "2026-02-14T22:35:00Z"
-impact_start_time: "2026-02-14T22:00:00Z"

@@ -1,7 +1,0 @@
-# ICM 749315334 — LoginFailureCause: LookupErrorBackend_FABRIC_E_SERVICE_DOES_NOT_EXIST
-# State: ACTIVE | Severity: Sev-2
-# Region: ProdEus2a
-server_name: "spartan-srv-tip-powerbidailymsft-52c188f07081"
-database_name: "db_powerbidailymsft_20220920_08395648_7739"
-environment: "ProdEus2a"
-login_failure_cause: "LookupErrorBackend_FABRIC_E_SERVICE_DOES_NOT_EXIST"

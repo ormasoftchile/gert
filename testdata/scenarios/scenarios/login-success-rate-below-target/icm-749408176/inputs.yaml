@@ -1,7 +1,0 @@
-# ICM 749408176 — LoginFailureCause: HasSqlDump
-# State: MITIGATED | Severity: Sev-2
-# Region: ProdCus1a
-server_name: "spartan-srv-nam-d365opsprod-9690b0e40fd5"
-database_name: "db_d365opsprod_triarccorp_ax_20240619_05150179_0f04"
-environment: "ProdCus1a"
-login_failure_cause: "HasSqlDump"

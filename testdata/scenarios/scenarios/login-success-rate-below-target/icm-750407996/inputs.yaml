@@ -1,8 +1,0 @@
-# ICM 750407996  LoginFailureCause: LoginErrorsFound_40613_127
-# State: ACTIVE | Severity: Sev-3
-# Region: ProdEus1a (East US)
-# Date: 2026-02-19T17:50:41Z
-server_name: "spartan-srv-nam-bcprodus-1d0ef2defcb0"
-database_name: "db_bcprodus_t80078492_20260216_09305442_6ea9"
-environment: "ProdEus1a"
-login_failure_cause: "LoginErrorsFound_40613_127"

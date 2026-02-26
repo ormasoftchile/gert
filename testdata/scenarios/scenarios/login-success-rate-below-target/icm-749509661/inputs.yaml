@@ -1,7 +1,0 @@
-# ICM 749509661 — LoginFailureCause: UpdateSloInProgress_40613_127
-# State: ACTIVE | Severity: Sev-3
-# Region: ProdNeu1a
-server_name: "spartan-srv-emea-bcprodweu-080da125ae51"
-database_name: "db_bcprodweu_t15356761_20260218_12005180_b271"
-environment: "ProdNeu1a"
-login_failure_cause: "UpdateSloInProgress_40613_127"

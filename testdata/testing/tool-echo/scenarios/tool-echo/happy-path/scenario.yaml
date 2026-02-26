@@ -1,6 +1,0 @@
-# echo tool: mock the echo command
-commands:
-  - argv: ["echo", "hello-from-tool"]
-    stdout: "hello-from-tool"
-    stderr: ""
-    exit_code: 0

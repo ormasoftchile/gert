@@ -1,5 +1,0 @@
-commands:
-  - argv: ["echo", "hello"]
-    stdout: "hello\n"
-    stderr: ""
-    exit_code: 0

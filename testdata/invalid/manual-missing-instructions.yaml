@@ -1,7 +1,0 @@
-apiVersion: runbook/v0
-meta:
-  name: manual-missing-instructions
-steps:
-  - id: step_one
-    type: manual
-    title: Missing instructions

@@ -1,7 +1,0 @@
-# ICM 749305490 — LoginFailureCause: IsCustomerBypassingGW
-# State: MITIGATED | Severity: Sev-3
-# Region: ProdWeu1a
-server_name: "ugodmd5h9w"
-database_name: "Files"
-environment: "ProdWeu1a"
-login_failure_cause: "IsCustomerBypassingGW"

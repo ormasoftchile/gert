@@ -1,7 +1,0 @@
-# ICM 749459274 — LoginFailureCause: IsActivateDatabaseFailure
-# State: MITIGATED | Severity: Sev-3
-# Region: ProdUkSo1a
-server_name: "sql-travelify-np"
-database_name: "sqldb_travelifycache_np"
-environment: "ProdUkSo1a"
-login_failure_cause: "IsActivateDatabaseFailure"
