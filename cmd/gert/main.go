@@ -602,7 +602,6 @@ func init() {
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(migrateCmd)
 	rootCmd.AddCommand(tuiCmd)
-	rootCmd.AddCommand(walkthroughCmd)
 
 	// tui flags
 	tuiCmd.Flags().StringVar(&tuiMode, "mode", "real", "Execution mode: real, replay, or dry-run")
@@ -610,10 +609,6 @@ func init() {
 	tuiCmd.Flags().StringVar(&tuiScenario, "scenario", "", "Path to scenario directory (for replay mode)")
 	tuiCmd.Flags().StringVar(&tuiActor, "as", "", "Actor identity for approval recording")
 	tuiCmd.Flags().BoolVar(&tuiCompact, "compact", false, "Single-column layout for narrow terminals")
-
-	// walkthrough flags
-	walkthroughCmd.Flags().StringVarP(&walkthroughOut, "output", "o", "", "Output file path (default: walkthrough-<name>.md)")
-	walkthroughCmd.Flags().StringArrayVar(&walkthroughVars, "var", nil, "Set a variable (key=value), repeatable")
 
 	// test flags
 	testCmd.Flags().StringVar(&testScenario, "scenario", "", "Run only the named scenario (default: all)")
