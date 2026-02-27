@@ -1440,6 +1440,7 @@ func (s *Server) handleChooseOutcome(msg *Message) {
 	var params struct {
 		StepID string `json:"stepId"`
 		State  string `json:"state"`
+		Index  *int   `json:"index,omitempty"`
 	}
 	if err := json.Unmarshal(msg.Params, &params); err != nil {
 		s.sendError(msg.ID, -32602, fmt.Sprintf("invalid params: %v", err))
@@ -1476,30 +1477,44 @@ func (s *Server) handleChooseOutcome(msg *Message) {
 		"captures": result.Captures,
 	})
 
-	// Find the chosen outcome to get its recommendation and next_runbook
+	// Find the chosen outcome — prefer index (disambiguates duplicate states),
+	// fall back to matching by state string for backward compatibility.
 	var rec string
 	var chosenOutcome *schema.Outcome
-	for i, o := range step.Outcomes {
-		if o.State == params.State {
-			rec = s.engine.ResolveTemplatePublic(o.Recommendation)
-			if rec == "" || rec == "<no value>" {
-				rec = o.Recommendation
+	var chosenState string
+	if params.Index != nil && *params.Index >= 0 && *params.Index < len(step.Outcomes) {
+		i := *params.Index
+		chosenOutcome = &step.Outcomes[i]
+		chosenState = chosenOutcome.State
+		rec = s.engine.ResolveTemplatePublic(chosenOutcome.Recommendation)
+		if rec == "" || rec == "<no value>" {
+			rec = chosenOutcome.Recommendation
+		}
+		rec = strings.TrimSpace(rec)
+	} else {
+		chosenState = params.State
+		for i, o := range step.Outcomes {
+			if o.State == params.State {
+				rec = s.engine.ResolveTemplatePublic(o.Recommendation)
+				if rec == "" || rec == "<no value>" {
+					rec = o.Recommendation
+				}
+				rec = strings.TrimSpace(rec)
+				chosenOutcome = &step.Outcomes[i]
+				break
 			}
-			rec = strings.TrimSpace(rec)
-			chosenOutcome = &step.Outcomes[i]
-			break
 		}
 	}
 
 	// Set the chosen outcome on the engine
-	s.engine.SetOutcome(params.State, step.ID, rec)
+	s.engine.SetOutcome(chosenState, step.ID, rec)
 
 	// Clear remaining cursor — outcome terminates the tree
 	s.treeCursor.pending = nil
 
 	s.sendEvent("event/outcomeReached", map[string]interface{}{
 		"stepId":         step.ID,
-		"state":          params.State,
+		"state":          chosenState,
 		"recommendation": rec,
 		"nextRunbook":    s.buildNextRunbookInfo(chosenOutcome),
 	})
@@ -1509,7 +1524,7 @@ func (s *Server) handleChooseOutcome(msg *Message) {
 	s.sendResult(msg.ID, map[string]interface{}{
 		"stepId":         step.ID,
 		"status":         "outcome",
-		"outcomeState":   params.State,
+		"outcomeState":   chosenState,
 		"recommendation": rec,
 		"nextRunbook":    s.buildNextRunbookInfo(chosenOutcome),
 	})

@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -40,7 +39,6 @@ var templateVarRe = regexp.MustCompile(`\{\{\s*\.(\w+)\s*\}\}`)
 // Engine is the runtime execution engine that drives runbook execution.
 type Engine struct {
 	Runbook     *schema.Runbook
-	Project     *schema.Project     // package resolution context (nil = legacy mode)
 	State       *RunState
 	Gov         *governance.GovernanceEngine
 	Redact      []*governance.CompiledRedaction
@@ -48,7 +46,9 @@ type Engine struct {
 	Collector   providers.EvidenceCollector
 	Trace       *TraceWriter
 	BaseDir     string // .runbook/runs/<run_id>/
-	StepScenario *replay.StepScenario // nil unless replay mode with scenario dir
+	xtsProvider *providers.XTSProvider
+	XTSScenario *replay.XTSScenario // nil unless replay mode with scenario dir
+	ICMID       string              // ICM incident ID (optional)
 	RunbookPath string              // path to the runbook file
 	ToolManager *tools.Manager      // tool definition manager (nil = no tools)
 	outcome     *OutcomeRecord      // set by outcome evaluation
@@ -106,15 +106,28 @@ func NewEngine(rb *schema.Runbook, executor providers.CommandExecutor, collector
 		History:          nil,
 	}
 
+	// Initialize XTS provider if runbook has xts config
+	// Initialize XTS provider (legacy path — provides CLIPath for tool registration)
+	var xtsProv *providers.XTSProvider
+	if rb.Meta.XTS != nil {
+		var err2 error
+		xtsProv, err2 = providers.NewXTSProvider(rb.Meta.XTS)
+		if err2 != nil {
+			// Non-fatal: warn but allow non-xts steps to run
+			fmt.Fprintf(os.Stderr, "warning: XTS provider init failed: %v\n", err2)
+		}
+	}
+
 	return &Engine{
-		Runbook:  rb,
-		State:    state,
-		Gov:      gov,
-		Redact:   redactRules,
-		Executor: executor,
-		Collector: collector,
-		Trace:    trace,
-		BaseDir:  baseDir,
+		Runbook:     rb,
+		State:       state,
+		Gov:         gov,
+		Redact:      redactRules,
+		Executor:    executor,
+		Collector:   collector,
+		Trace:       trace,
+		BaseDir:     baseDir,
+		xtsProvider: xtsProv,
 	}, nil
 }
 
@@ -131,17 +144,6 @@ func (e *Engine) Run(ctx context.Context) error {
 // runTree recursively walks the tree, executing steps and evaluating branches.
 func (e *Engine) runTree(ctx context.Context, nodes []schema.TreeNode) error {
 	for _, node := range nodes {
-		// Handle iterate blocks
-		if node.Iterate != nil {
-			if err := e.runIterate(ctx, node.Iterate); err != nil {
-				return err
-			}
-			if e.outcome != nil {
-				return nil // iterate set a terminal outcome; stop execution
-			}
-			continue
-		}
-
 		step := node.Step
 		stepIdx := e.stepCounts.Total
 
@@ -174,18 +176,12 @@ func (e *Engine) runTree(ctx context.Context, nodes []schema.TreeNode) error {
 			e.stepCounts.Failed++
 			e.stepCounts.Total++
 			fmt.Printf("  ✗ Step %q failed: %s\n", step.ID, result.Error)
-			// If captures were extracted and outcomes are defined, evaluate
-			// outcomes before giving up — the tool may have exited non-zero
-			// but still produced valid output (e.g., zero rows → exit 1).
-			if len(result.Captures) == 0 || len(step.Outcomes) == 0 {
-				return fmt.Errorf("step %q failed: %s", step.ID, result.Error)
-			}
-			fmt.Printf("  ▸ Evaluating outcomes despite failure (captures present)\n")
-		} else {
-			e.stepCounts.Passed++
-			e.stepCounts.Total++
-			fmt.Printf("  ✓ Step %q passed\n", step.ID)
+			return fmt.Errorf("step %q failed: %s", step.ID, result.Error)
 		}
+
+		e.stepCounts.Passed++
+		e.stepCounts.Total++
+		fmt.Printf("  ✓ Step %q passed\n", step.ID)
 
 		// Evaluate outcomes
 		if len(step.Outcomes) > 0 {
@@ -229,9 +225,6 @@ func (e *Engine) runTree(ctx context.Context, nodes []schema.TreeNode) error {
 					if err := e.runTree(ctx, branch.Steps); err != nil {
 						return err
 					}
-					if e.outcome != nil {
-						return nil // branch set a terminal outcome; stop execution
-					}
 					break // only first matching branch
 				}
 			}
@@ -241,107 +234,6 @@ func (e *Engine) runTree(ctx context.Context, nodes []schema.TreeNode) error {
 	fmt.Printf("\n✓ Runbook completed successfully (%d steps)\n", e.stepCounts.Total)
 	fmt.Printf("  Artifacts: %s\n", e.BaseDir)
 	return nil
-}
-
-// runIterate executes a bounded iteration loop. Two modes:
-//   - Convergence (max + until): re-execute steps until condition is true or max passes.
-//   - List (over + as): iterate over a comma-separated list, running steps once per item.
-//
-// The {{ .iteration }} template variable (0-indexed) is always available.
-// In list mode, {{ .<as> }} (default "item") holds the current element.
-// Captures from pass N are available in pass N+1 (feedback loop).
-func (e *Engine) runIterate(ctx context.Context, iter *schema.IterateBlock) error {
-	// List mode: iterate over items
-	if iter.Over != "" {
-		return e.runIterateOver(ctx, iter)
-	}
-	// Convergence mode: retry until condition
-	return e.runIterateUntil(ctx, iter)
-}
-
-// runIterateOver executes the list-mode iterate: resolve the 'over' expression,
-// split into items, and run the steps once per item.
-func (e *Engine) runIterateOver(ctx context.Context, iter *schema.IterateBlock) error {
-	// Resolve the over expression through the template engine
-	resolved, err := e.resolveTemplate(iter.Over)
-	if err != nil {
-		return fmt.Errorf("iterate over: %w", err)
-	}
-
-	// Split comma-separated items, trimming whitespace
-	var items []string
-	for _, s := range strings.Split(resolved, ",") {
-		s = strings.TrimSpace(s)
-		if s != "" {
-			items = append(items, s)
-		}
-	}
-
-	if len(items) == 0 {
-		fmt.Printf("\n⊘ Iterate over: empty list, skipping\n")
-		return nil
-	}
-
-	asVar := iter.As
-	if asVar == "" {
-		asVar = "item"
-	}
-
-	fmt.Printf("\n↻ Iterate over %d items (as: %s)\n", len(items), asVar)
-
-	for i, item := range items {
-		e.State.Vars["iteration"] = fmt.Sprintf("%d", i)
-		e.State.Vars[asVar] = item
-
-		fmt.Printf("\n  ↻ [%d/%d] %s = %s\n", i+1, len(items), asVar, item)
-
-		if err := e.runTree(ctx, iter.Steps); err != nil {
-			return fmt.Errorf("iterate over item %d (%s): %w", i, item, err)
-		}
-
-		if e.outcome != nil {
-			return nil
-		}
-	}
-
-	return nil
-}
-
-// runIterateUntil executes the convergence-mode iterate: re-execute steps
-// until the Until condition evaluates to true or Max passes are reached.
-func (e *Engine) runIterateUntil(ctx context.Context, iter *schema.IterateBlock) error {
-	for pass := 0; pass < iter.Max; pass++ {
-		// Inject iteration counter into vars
-		e.State.Vars["iteration"] = fmt.Sprintf("%d", pass)
-
-		fmt.Printf("\n↻ Iterate pass %d/%d\n", pass+1, iter.Max)
-
-		// Execute all steps in the iterate block
-		if err := e.runTree(ctx, iter.Steps); err != nil {
-			return fmt.Errorf("iterate pass %d: %w", pass+1, err)
-		}
-
-		// If an outcome was set inside the iterate, propagate it
-		if e.outcome != nil {
-			return nil
-		}
-
-		// Evaluate the until convergence condition
-		converged, err := e.evalCondition(iter.Until)
-		if err != nil {
-			return fmt.Errorf("iterate until condition: %w", err)
-		}
-		if converged {
-			fmt.Printf("\n✓ Iterate converged at pass %d/%d\n", pass+1, iter.Max)
-			return nil
-		}
-
-		if pass < iter.Max-1 {
-			fmt.Printf("  ▸ Until condition not met, continuing to pass %d\n", pass+2)
-		}
-	}
-
-	return fmt.Errorf("iterate did not converge after %d passes (until: %s)", iter.Max, iter.Until)
 }
 
 // runFlat executes flat steps[] (backward compatibility).
@@ -404,22 +296,19 @@ func (e *Engine) runFlat(ctx context.Context) error {
 			e.State.Captures[k] = v
 		}
 
-		// Halt on failure — unless captures and outcomes are defined
+		// Halt on failure
 		if result.Status == "failed" {
 			e.stepCounts.Failed++
 			e.stepCounts.Total++
 			fmt.Printf("  ✗ Step %q failed: %s\n", step.ID, result.Error)
-			if len(result.Captures) == 0 || len(step.Outcomes) == 0 {
-				fmt.Printf("  Artifacts: %s\n", e.BaseDir)
-				fmt.Printf("  Resume with: gert exec <runbook> --resume %s\n", e.State.RunID)
-				return fmt.Errorf("step %q failed: %s", step.ID, result.Error)
-			}
-			fmt.Printf("  ▸ Evaluating outcomes despite failure (captures present)\n")
-		} else {
-			e.stepCounts.Passed++
-			e.stepCounts.Total++
-			fmt.Printf("  ✓ Step %q passed\n", step.ID)
+			fmt.Printf("  Artifacts: %s\n", e.BaseDir)
+			fmt.Printf("  Resume with: gert exec <runbook> --resume %s\n", e.State.RunID)
+			return fmt.Errorf("step %q failed: %s", step.ID, result.Error)
 		}
+
+		e.stepCounts.Passed++
+		e.stepCounts.Total++
+		fmt.Printf("  ✓ Step %q passed\n", step.ID)
 
 		// Evaluate outcomes — check if this step reached a terminal state
 		if len(step.Outcomes) > 0 {
@@ -472,17 +361,10 @@ func (e *Engine) chainToRunbook(ctx context.Context, outcome schema.Outcome) err
 		return fmt.Errorf("resolve next_runbook file: %w", err)
 	}
 
-	// Try project-aware resolution first, then fall back to relative path
-	if e.Project != nil {
-		if projResolved, err := e.Project.ResolveRunbookRef(resolvedFile); err == nil {
-			resolvedFile = projResolved
-		} else if !filepath.IsAbs(resolvedFile) && e.RunbookPath != "" {
-			resolvedFile = filepath.Join(filepath.Dir(e.RunbookPath), resolvedFile)
-		}
-	} else if !filepath.IsAbs(resolvedFile) && e.RunbookPath != "" {
+	// Resolve relative to the parent runbook's directory
+	if !filepath.IsAbs(resolvedFile) && e.RunbookPath != "" {
 		resolvedFile = filepath.Join(filepath.Dir(e.RunbookPath), resolvedFile)
 	}
-	resolvedFile = normalizeRunbookPathRef(resolvedFile)
 
 	fmt.Printf("\n→ Chaining to: %s\n", resolvedFile)
 
@@ -526,26 +408,14 @@ func (e *Engine) chainToRunbook(ctx context.Context, outcome schema.Outcome) err
 	if err != nil {
 		return fmt.Errorf("create child engine: %w", err)
 	}
+	childEngine.ICMID = e.ICMID
 	childEngine.RunbookPath = resolvedFile
 	childEngine.ChainDepth = depth
 	childEngine.ParentRunID = e.State.RunID
 
-	// Inherit scenario and project context
-	childEngine.StepScenario = e.StepScenario
-	childEngine.Project = e.Project
-
-	// Load child tool definitions declared in tools: [name, ...]
-	if len(childRB.Tools) > 0 {
-		tm := tools.NewManager(e.Executor, childEngine.Redact)
-		baseDir := filepath.Dir(resolvedFile)
-		for _, name := range childRB.Tools {
-			resolved := schema.ResolveToolPathCompat(e.Project, childRB, name, baseDir)
-			if err := tm.Load(name, resolved, ""); err != nil {
-				fmt.Fprintf(os.Stderr, "runtime: warning: failed to load child tool %q: %v\n", name, err)
-			}
-		}
-		childEngine.ToolManager = tm
-	}
+	// Inherit XTS provider and scenario
+	childEngine.xtsProvider = e.xtsProvider
+	childEngine.XTSScenario = e.XTSScenario
 
 	fmt.Printf("  Child Run ID: %s (depth: %d)\n", childEngine.GetRunID(), depth)
 
@@ -569,23 +439,16 @@ func (e *Engine) chainToRunbook(ctx context.Context, outcome schema.Outcome) err
 	return childErr
 }
 
-// resolveImport resolves an invoke runbook reference to a file path.
-// Resolution order: imports map → project-aware resolution → normalize as path.
+// resolveImport resolves an invoke runbook alias to a file path using imports.
+// If the alias is found in the imports map, returns the resolved path.
+// Otherwise, treats it as a direct file path.
 func (e *Engine) resolveImport(alias string) string {
-	// 1. Legacy imports map (v0 compat)
 	if e.Runbook.Imports != nil {
 		if path, ok := e.Runbook.Imports[alias]; ok {
 			return path
 		}
 	}
-	// 2. Project-aware resolution (v1 packages)
-	if e.Project != nil {
-		if resolved, err := e.Project.ResolveRunbookRef(alias); err == nil {
-			return resolved
-		}
-	}
-	// 3. Fallback: treat as direct path
-	return normalizeRunbookPathRef(alias)
+	return alias
 }
 
 // executeInvokeStep runs a child runbook inline as a sub-procedure.
@@ -604,11 +467,10 @@ func (e *Engine) executeInvokeStep(ctx context.Context, step schema.Step, result
 	// Resolve template vars in the file path
 	resolvedFile = e.ResolveTemplatePublic(resolvedFile)
 
-	// Resolve relative to the parent runbook's directory (if not already absolute from project resolution)
+	// Resolve relative to the parent runbook's directory
 	if !filepath.IsAbs(resolvedFile) && e.RunbookPath != "" {
 		resolvedFile = filepath.Join(filepath.Dir(e.RunbookPath), resolvedFile)
 	}
-	resolvedFile = normalizeRunbookPathRef(resolvedFile)
 
 	fmt.Fprintf(os.Stderr, "  → Invoking child runbook: %s\n", resolvedFile)
 
@@ -644,26 +506,14 @@ func (e *Engine) executeInvokeStep(ctx context.Context, step schema.Step, result
 		result.Error = fmt.Sprintf("create child engine: %v", err)
 		return
 	}
+	childEngine.ICMID = e.ICMID
 	childEngine.RunbookPath = resolvedFile
 	childEngine.ChainDepth = depth
 	childEngine.ParentRunID = e.State.RunID
 
-	// Inherit scenario and project context
-	childEngine.StepScenario = e.StepScenario
-	childEngine.Project = e.Project
-
-	// Load child tool definitions declared in tools: [name, ...]
-	if len(childRB.Tools) > 0 {
-		tm := tools.NewManager(e.Executor, childEngine.Redact)
-		baseDir := filepath.Dir(resolvedFile)
-		for _, name := range childRB.Tools {
-			resolved := schema.ResolveToolPathCompat(e.Project, childRB, name, baseDir)
-			if err := tm.Load(name, resolved, ""); err != nil {
-				fmt.Fprintf(os.Stderr, "runtime: warning: failed to load child tool %q: %v\n", name, err)
-			}
-		}
-		childEngine.ToolManager = tm
-	}
+	// Inherit XTS provider and scenario
+	childEngine.xtsProvider = e.xtsProvider
+	childEngine.XTSScenario = e.XTSScenario
 
 	fmt.Fprintf(os.Stderr, "  Child Run ID: %s (depth: %d)\n", childEngine.GetRunID(), depth)
 
@@ -728,25 +578,6 @@ func (e *Engine) executeInvokeStep(ctx context.Context, step schema.Step, result
 	fmt.Fprintf(os.Stderr, "  ✓ Child runbook completed: outcome=%s\n", childOutcome)
 }
 
-func normalizeRunbookPathRef(path string) string {
-	p := strings.TrimSpace(path)
-	if p == "" {
-		return p
-	}
-	lower := strings.ToLower(p)
-	if strings.HasSuffix(lower, ".runbook.yaml") || strings.HasSuffix(lower, ".runbook.yml") {
-		return p
-	}
-	if strings.HasSuffix(lower, ".runbook") {
-		return p + ".yaml"
-	}
-	ext := strings.ToLower(filepath.Ext(p))
-	if ext == ".yaml" || ext == ".yml" {
-		return p
-	}
-	return p + ".runbook.yaml"
-}
-
 // executeStep runs a single step based on its type.
 func (e *Engine) executeStep(ctx context.Context, index int, step schema.Step) (*providers.StepResult, error) {
 	start := time.Now()
@@ -780,29 +611,6 @@ func (e *Engine) executeStep(ctx context.Context, index int, step schema.Step) (
 
 	// Create step context with timeout
 	stepCtx := ctx
-
-	// Apply delay if specified (wait before execution)
-	if step.Delay != "" {
-		delay, err := time.ParseDuration(step.Delay)
-		if err != nil {
-			result.Status = "failed"
-			result.Error = fmt.Sprintf("invalid delay %q: %v", step.Delay, err)
-			result.EndedAt = time.Now()
-			return result, nil
-		}
-		if delay > 0 {
-			fmt.Fprintf(os.Stderr, "  ⏳ Delaying %s before step %q\n", step.Delay, step.ID)
-			select {
-			case <-time.After(delay):
-			case <-ctx.Done():
-				result.Status = "failed"
-				result.Error = fmt.Sprintf("cancelled during delay: %v", ctx.Err())
-				result.EndedAt = time.Now()
-				return result, nil
-			}
-		}
-	}
-
 	if step.Type == "cli" {
 		timeout := e.getStepTimeout(step)
 		if timeout > 0 {
@@ -817,6 +625,20 @@ func (e *Engine) executeStep(ctx context.Context, index int, step schema.Step) (
 		e.executeCLIStep(stepCtx, step, result)
 	case "manual":
 		e.executeManualStep(stepCtx, step, result)
+	case "xts":
+		// Route through tool manager if available (Phase C migration)
+		if e.ToolManager != nil {
+			defaultEnv := ""
+			viewsRoot := ""
+			if e.Runbook.Meta.XTS != nil {
+				defaultEnv = e.Runbook.Meta.XTS.Environment
+				viewsRoot = e.Runbook.Meta.XTS.ViewsRoot
+			}
+			synthStep := tools.DesugarXTSToToolStep(step, defaultEnv, viewsRoot, "")
+			e.executeToolStep(stepCtx, synthStep, result)
+		} else {
+			e.executeXTSStep(stepCtx, step, result)
+		}
 	case "invoke":
 		e.executeInvokeStep(stepCtx, step, result)
 	case "tool":
@@ -909,44 +731,6 @@ func (e *Engine) executeToolStep(ctx context.Context, step schema.Step, result *
 		return
 	}
 
-	// Replay mode: use pre-recorded step response from scenario
-	if e.StepScenario != nil {
-		if respData, ok := e.StepScenario.FindStepResponse(step.ID); ok {
-			fmt.Printf("  [replay] Using scenario response for tool step %q\n", step.ID)
-			stdout := string(respData)
-
-			// Map step captures against the scenario response
-			for name, source := range step.Capture {
-				switch source {
-				case "stdout":
-					result.Captures[name] = strings.TrimSpace(stdout)
-				case "stderr":
-					result.Captures[name] = ""
-				default:
-					if strings.HasPrefix(source, "stdout.") {
-						jsonPath := strings.TrimPrefix(source, "stdout.")
-						if extracted, err := tools.ExtractJSONPath(json.RawMessage(stdout), jsonPath); err == nil {
-							result.Captures[name] = extracted
-						} else {
-							fmt.Fprintf(os.Stderr, "  ⚠ replay capture %q: stdout path %q extraction failed: %v\n", name, jsonPath, err)
-						}
-					} else {
-						// Try as JSON path directly on the response
-						if extracted, err := tools.ExtractJSONPath(json.RawMessage(stdout), source); err == nil {
-							result.Captures[name] = extracted
-						} else {
-							result.Captures[name] = strings.TrimSpace(stdout)
-						}
-					}
-				}
-			}
-			result.Status = "passed"
-			return
-		}
-		// No scenario data for this tool step — fall through to tool execution
-		fmt.Fprintf(os.Stderr, "  [replay] No scenario data for tool step %q, executing via tool manager\n", step.ID)
-	}
-
 	if e.ToolManager == nil {
 		result.Status = "failed"
 		result.Error = "no tool manager configured — tools: not loaded"
@@ -1018,28 +802,9 @@ func (e *Engine) executeToolStep(ctx context.Context, step schema.Step, result *
 			// Check if source matches a tool-level capture name
 			if val, ok := actionResult.Captures[source]; ok {
 				result.Captures[name] = val
-			} else if strings.HasPrefix(source, "stdout.") {
-				// JSON path extraction from stdout: "stdout.data.0.FieldName"
-				jsonPath := strings.TrimPrefix(source, "stdout.")
-				if extracted, err := tools.ExtractJSONPath(json.RawMessage(stdout), jsonPath); err == nil {
-					result.Captures[name] = extracted
-				} else {
-					fmt.Fprintf(os.Stderr, "  ⚠ capture %q: stdout path %q extraction failed: %v\n", name, jsonPath, err)
-				}
-			} else if strings.HasPrefix(source, "stderr.") {
-				// JSON path extraction from stderr
-				jsonPath := strings.TrimPrefix(source, "stderr.")
-				if extracted, err := tools.ExtractJSONPath(json.RawMessage(actionResult.Stderr), jsonPath); err == nil {
-					result.Captures[name] = extracted
-				} else {
-					fmt.Fprintf(os.Stderr, "  ⚠ capture %q: stderr path %q extraction failed: %v\n", name, jsonPath, err)
-				}
 			}
 		}
 	}
-
-	// Propagate LLM usage metadata to step result (for trace)
-	result.Usage = actionResult.Usage
 
 	// Evaluate assertions against stdout
 	allPassed := true
@@ -1170,6 +935,155 @@ func (e *Engine) executeManualStep(ctx context.Context, step schema.Step, result
 	result.Status = "passed"
 }
 
+// executeXTSStep handles XTS step execution via the XTS provider.
+func (e *Engine) executeXTSStep(ctx context.Context, step schema.Step, result *providers.StepResult) {
+	result.Actor = "engine"
+
+	if step.XTS == nil {
+		result.Status = "failed"
+		result.Error = "XTS step has no xts configuration"
+		return
+	}
+
+	// Replay mode: use pre-recorded step response from scenario
+	if e.XTSScenario != nil {
+		if respData, ok := e.XTSScenario.FindStepResponse(step.ID); ok {
+			fmt.Printf("  [replay] Using scenario response for step %q\n", step.ID)
+			// Parse the JSON response as XTSOutput
+			var xtsOut providers.XTSOutput
+			if err := json.Unmarshal(respData, &xtsOut); err != nil {
+				result.Status = "failed"
+				result.Error = fmt.Sprintf("replay: parse scenario response for %q: %v", step.ID, err)
+				return
+			}
+			// Extract captures
+			for name, expr := range step.Capture {
+				val, err := providers.EvaluateXTSCapturePublic(expr, &xtsOut, string(respData))
+				if err != nil {
+					if xtsOut.RowCount == 0 {
+						result.Captures[name] = ""
+						continue
+					}
+					result.Status = "failed"
+					result.Error = fmt.Sprintf("replay capture %q: %v", name, err)
+					return
+				}
+				result.Captures[name] = val
+			}
+			result.Status = "passed"
+			return
+		}
+		// No scenario data for this step — fall through to real execution
+		fmt.Printf("  [replay] No scenario data for step %q, executing live\n", step.ID)
+	}
+
+	if e.xtsProvider == nil {
+		result.Status = "failed"
+		result.Error = "XTS provider not initialized (check meta.xts configuration and xts-cli availability)"
+		return
+	}
+
+	// Pre-flight: check for empty input vars referenced in this step's templates
+	if warnings := e.checkUnresolvedVars(step); len(warnings) > 0 {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("unresolved or empty inputs: %s", strings.Join(warnings, "; "))
+		return
+	}
+
+	// Resolve template variables in XTS params before execution
+	resolvedStep := step
+	resolvedXTS := *step.XTS
+	if len(resolvedXTS.Params) > 0 {
+		resolvedParams := make(map[string]string, len(resolvedXTS.Params))
+		for k, v := range resolvedXTS.Params {
+			resolved, err := e.resolveTemplate(v)
+			if err != nil {
+				result.Status = "failed"
+				result.Error = fmt.Sprintf("resolve param %q: %v", k, err)
+				return
+			}
+			resolvedParams[k] = resolved
+		}
+		resolvedXTS.Params = resolvedParams
+	}
+
+	// Resolve template in query text
+	if resolvedXTS.Query != "" {
+		resolved, err := e.resolveTemplate(resolvedXTS.Query)
+		if err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("resolve query: %v", err)
+			return
+		}
+		resolvedXTS.Query = resolved
+	}
+
+	// Inject default environment from meta.xts if not set on step
+	if resolvedXTS.Environment == "" && e.Runbook.Meta.XTS != nil {
+		resolvedXTS.Environment = e.Runbook.Meta.XTS.Environment
+	}
+	// Resolve template in environment (may be {{ .environment }} from inputs)
+	if strings.Contains(resolvedXTS.Environment, "{{") {
+		resolved, err := e.resolveTemplate(resolvedXTS.Environment)
+		if err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("resolve environment: %v", err)
+			return
+		}
+		resolvedXTS.Environment = resolved
+	}
+
+	resolvedStep.XTS = &resolvedXTS
+
+	// Dry-run: show the command that would execute, skip actual execution
+	if e.State.Mode == "dry-run" {
+		argv, err := e.xtsProvider.BuildArgvPublic(&resolvedXTS, resolvedXTS.Environment, e.State.Vars, e.State.Captures)
+		if err != nil {
+			fmt.Printf("  [dry-run] would execute xts-cli (failed to build argv: %v)\n", err)
+		} else {
+			fmt.Printf("  [dry-run] would execute: %s %v\n", e.xtsProvider.CLIPath, argv)
+		}
+		// Generate placeholder captures
+		for name := range step.Capture {
+			result.Captures[name] = "<dry-run>"
+		}
+		result.Status = "passed"
+		return
+	}
+
+	// Build execution context
+	execCtx := &providers.ExecutionContext{
+		RunID:           e.State.RunID,
+		Mode:            e.State.Mode,
+		Vars:            e.State.Vars,
+		Captures:        e.State.Captures,
+		CommandExecutor: e.Executor,
+		Governance:      e.Runbook.Meta.Governance,
+	}
+
+	xtsResult, err := e.xtsProvider.Execute(ctx, execCtx, resolvedStep)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("xts provider: %v", err)
+		return
+	}
+
+	// Copy results from provider
+	result.Status = xtsResult.Status
+	result.Error = xtsResult.Error
+	result.Captures = xtsResult.Captures
+
+	// Auto-save XTS step response for scenario capture
+	if len(xtsResult.RawResponse) > 0 && e.State.Mode == "real" {
+		stepsDir := filepath.Join(e.BaseDir, "steps")
+		os.MkdirAll(stepsDir, 0755)
+		stepFile := filepath.Join(stepsDir, fmt.Sprintf("%03d-%s.json", result.StepIndex, strings.ReplaceAll(step.ID, "_", "-")))
+		if err := os.WriteFile(stepFile, xtsResult.RawResponse, 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "  warning: failed to save step response: %v\n", err)
+		}
+	}
+}
+
 // resolveArgv resolves template expressions in argv elements.
 func (e *Engine) resolveArgv(argv []string) ([]string, error) {
 	resolved := make([]string, len(argv))
@@ -1184,14 +1098,26 @@ func (e *Engine) resolveArgv(argv []string) ([]string, error) {
 }
 
 // checkUnresolvedVars scans a step's templates for {{ .varName }} references and
-// returns warnings for any that are empty or missing in the current state.
+// returns warnings for any that are empty or missing in the current state. This
+// catches misconfigured inputs early with a clear message instead of a cryptic
+// xts-cli failure.
 func (e *Engine) checkUnresolvedVars(step schema.Step) []string {
 	var warnings []string
 
 	// Collect all template strings from this step
 	var templates []string
+	if step.XTS != nil {
+		templates = append(templates, step.XTS.Query, step.XTS.Environment)
+		for _, v := range step.XTS.Params {
+			templates = append(templates, v)
+		}
+	}
 	if step.Instructions != "" {
 		templates = append(templates, step.Instructions)
+	}
+	// Also check meta-level environment if step has none
+	if step.XTS != nil && step.XTS.Environment == "" && e.Runbook.Meta.XTS != nil {
+		templates = append(templates, e.Runbook.Meta.XTS.Environment)
 	}
 
 	// Extract {{ .varName }} references
@@ -1258,7 +1184,7 @@ func (e *Engine) evalCondition(exprStr string) (bool, error) {
 
 	// Use expr-lang
 	env := e.buildEnv()
-	program, err := expr.Compile(exprStr, expr.Env(env), expr.AsBool(), expr.AllowUndefinedVariables())
+	program, err := expr.Compile(exprStr, expr.Env(env), expr.AsBool())
 	if err != nil {
 		return false, fmt.Errorf("compile condition %q: %w", exprStr, err)
 	}
@@ -1305,16 +1231,6 @@ var runbookFuncMap = template.FuncMap{
 	// trimPrefix/trimSuffix.
 	"trimPrefix": strings.TrimPrefix,
 	"trimSuffix": strings.TrimSuffix,
-	// default returns the value if non-empty, otherwise the fallback.
-	"default": func(fallback, val interface{}) interface{} {
-		if val == nil {
-			return fallback
-		}
-		if s, ok := val.(string); ok && s == "" {
-			return fallback
-		}
-		return val
-	},
 }
 
 // resolveTemplate resolves Go template expressions against vars + captures.
@@ -1337,9 +1253,9 @@ func (e *Engine) resolveTemplate(tmplStr string) (string, error) {
 	return buf.String(), nil
 }
 
-// parseCapture attempts to parse a capture value into a typed Go value.
-// JSON arrays → []interface{}, JSON objects → map[string]interface{},
-// numeric strings → int or float64, otherwise the original string.
+// parseCapture attempts to parse a capture value as JSON array or object.
+// If it's a JSON array, returns []interface{} so template functions like len work.
+// Otherwise returns the original string.
 func parseCapture(v string) interface{} {
 	v = strings.TrimSpace(v)
 	if len(v) > 1 && v[0] == '[' {
@@ -1353,13 +1269,6 @@ func parseCapture(v string) interface{} {
 		if err := json.Unmarshal([]byte(v), &obj); err == nil {
 			return obj
 		}
-	}
-	// Try integer first, then float
-	if i, err := strconv.ParseInt(v, 10, 64); err == nil {
-		return int(i)
-	}
-	if f, err := strconv.ParseFloat(v, 64); err == nil {
-		return f
 	}
 	return v
 }
@@ -1451,6 +1360,7 @@ func (e *Engine) EvalConditionPublic(condition string) bool {
 func (e *Engine) BuildManifest() *RunManifest {
 	return &RunManifest{
 		RunID:          e.State.RunID,
+		ICMID:          e.ICMID,
 		Runbook:        e.RunbookPath,
 		Actor:          e.State.Actor,
 		Mode:           e.State.Mode,
@@ -1515,9 +1425,9 @@ func (e *Engine) ExecuteTreeStep(ctx context.Context, index int, step schema.Ste
 	return result, nil
 }
 
-// SaveScenario writes the current run's inputs and step responses to a
+// SaveScenario writes the current run's inputs and XTS step responses to a
 // replay scenario folder. The folder will contain inputs.yaml and steps/*.json,
-// matching the format expected by LoadStepScenario.
+// matching the format expected by LoadXTSScenario.
 func (e *Engine) SaveScenario(outputDir string) error {
 	// Write inputs.yaml from resolved vars
 	if len(e.State.Vars) > 0 {
@@ -1572,4 +1482,13 @@ func (e *Engine) SetOutcome(state string, stepID string, recommendation string) 
 // GetOutcome returns the engine's outcome record (nil if no outcome reached).
 func (e *Engine) GetOutcome() *OutcomeRecord {
 	return e.outcome
+}
+
+// GetXTSCLIPath returns the resolved XTS CLI binary path, or empty string
+// if no XTS provider is configured.
+func (e *Engine) GetXTSCLIPath() string {
+	if e.xtsProvider != nil {
+		return e.xtsProvider.CLIPath
+	}
+	return ""
 }

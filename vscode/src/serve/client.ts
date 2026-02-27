@@ -190,8 +190,8 @@ export class GertClient {
   /**
    * Choose an outcome for a manual step.
    */
-  async chooseOutcome(stepId: string, state: string): Promise<any> {
-    return this.request('exec/chooseOutcome', { stepId, state });
+  async chooseOutcome(stepId: string, state: string, index?: number): Promise<any> {
+    return this.request('exec/chooseOutcome', { stepId, state, index });
   }
 
   /**

@@ -492,7 +492,7 @@ export class RunbookPanel {
         try {
           this.processing = true;
           this.updateWebview();
-          const outcomeResult = await this.client.chooseOutcome(msg.stepId, msg.state);
+          const outcomeResult = await this.client.chooseOutcome(msg.stepId, msg.state, msg.index);
           if (outcomeResult?.status === 'completed' && !this.outcomeResult) {
             this.processing = false;
             this.runCompleted = true;
@@ -1399,9 +1399,10 @@ ${chainBreadcrumb}
       const disabledAttr = '';
       if (isManual && hasOutcomes) {
         // Show outcome choice buttons (no generic "Continue")
-        const buttons = detail.outcomes.map((o: any) => {
+        const buttons = detail.outcomes.map((o: any, idx: number) => {
           const cls = o.state === 'resolved' ? 'btn-resolved' : o.state === 'escalated' ? 'btn-escalated' : 'btn-secondary';
-          return `<button class="btn ${cls}" onclick="chooseOutcome('${escapeHtml(detail.stepId)}', '${o.state}')">${outcomeButtonLabel(o.state)}</button>`;
+          const label = o.label || outcomeButtonLabel(o.state);
+          return `<button class="btn ${cls}" onclick="chooseOutcome('${escapeHtml(detail.stepId)}', '${o.state}', ${idx})">${escapeHtml(label)}</button>`;
         }).join('');
         return `<div class="outcome-choice">
           <div class="outcome-choice-label">Select outcome:</div>
@@ -1431,7 +1432,7 @@ ${chainBreadcrumb}
   const vscode = acquireVsCodeApi();
   function nextStep() { vscode.postMessage({ type: 'next' }); }
   function getVars() { vscode.postMessage({ type: 'getVariables' }); }
-  function chooseOutcome(stepId, state) { vscode.postMessage({ type: 'chooseOutcome', stepId, state }); }
+  function chooseOutcome(stepId, state, index) { vscode.postMessage({ type: 'chooseOutcome', stepId, state, index }); }
   function viewStep(stepId) { vscode.postMessage({ type: 'viewStep', stepId: stepId }); }
   function backStep() { vscode.postMessage({ type: 'backStep' }); }
   function returnToActive() { vscode.postMessage({ type: 'returnToActive' }); }
@@ -1586,8 +1587,10 @@ ${chainBreadcrumb}
         // Strip auto-increment suffix (e.g., "resolved-2" → "resolved")
         const expected = folderName.replace(/-\d+$/, '');
         // Find matching outcome, fallback to first
-        const match = detail.outcomes.find((o: any) => o.state === expected) || detail.outcomes[0];
-        await this.client.chooseOutcome(detail.stepId, match.state);
+        const matchIdx = detail.outcomes.findIndex((o: any) => o.state === expected);
+        const idx = matchIdx >= 0 ? matchIdx : 0;
+        const match = detail.outcomes[idx];
+        await this.client.chooseOutcome(detail.stepId, match.state, idx);
       } else {
         await this.client.execNext();
       }
@@ -2119,7 +2122,8 @@ ${chainBreadcrumb}
     if (step.outcomes && step.outcomes.length > 0) {
       for (const o of step.outcomes) {
         if (o.recommendation) {
-          const stateLabel = o.state === 'no_action' ? 'If no issues found' :
+          const stateLabel = o.label ? o.label :
+                            o.state === 'no_action' ? 'If no issues found' :
                             o.state === 'escalated' ? 'Request Assistance' :
                             o.state === 'resolved' ? 'Resolution' : o.state;
           const resolvedRec = this.resolveTemplateVars(o.recommendation);

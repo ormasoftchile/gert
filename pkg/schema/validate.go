@@ -195,7 +195,6 @@ func ValidateDomain(rb *Runbook) []*ValidationError {
 
 	// Validate meta.inputs
 	if rb.Meta.Inputs != nil {
-		validFromPrefixes := []string{"prompt", "enrichment"}
 		for name, input := range rb.Meta.Inputs {
 			if input.From == "" {
 				errs = append(errs, &ValidationError{
@@ -205,18 +204,19 @@ func ValidateDomain(rb *Runbook) []*ValidationError {
 					Severity: "error",
 				})
 			} else {
-				valid := false
-				for _, prefix := range validFromPrefixes {
-					if input.From == prefix || strings.HasPrefix(input.From, prefix) {
-						valid = true
-						break
-					}
-				}
+				// Accept "prompt", "enrichment", or any dotted provider path
+				// like "icm.customFields.ServerName". Provider availability is
+				// checked at runtime, not at static validation time.
+				valid := input.From == "prompt" ||
+					strings.HasPrefix(input.From, "prompt.") ||
+					input.From == "enrichment" ||
+					strings.HasPrefix(input.From, "enrichment.") ||
+					strings.Contains(input.From, ".")
 				if !valid {
 					errs = append(errs, &ValidationError{
 						Phase:    "domain",
 						Path:     fmt.Sprintf("meta.inputs.%s.from", name),
-						Message:  fmt.Sprintf("input %q has invalid source %q: must start with prompt or enrichment (or a registered provider prefix)", name, input.From),
+						Message:  fmt.Sprintf("input %q has invalid source %q: must be prompt, enrichment, or a dotted provider path (e.g. icm.customFields.ServerName)", name, input.From),
 						Severity: "error",
 					})
 				}

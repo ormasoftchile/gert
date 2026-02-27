@@ -215,6 +215,7 @@ type Step struct {
 type Outcome struct {
 	When           string       `yaml:"when,omitempty"           json:"when,omitempty"`
 	State          string       `yaml:"state"                    json:"state"          jsonschema:"required,enum=resolved,enum=escalated,enum=no_action,enum=needs_rca"`
+	Label          string       `yaml:"label,omitempty"          json:"label,omitempty"`
 	Recommendation string       `yaml:"recommendation,omitempty" json:"recommendation,omitempty"`
 	NextRunbook    *NextRunbook `yaml:"next_runbook,omitempty"   json:"next_runbook,omitempty"`
 }
