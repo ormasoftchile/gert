@@ -27,6 +27,42 @@ type ToolExecutor interface {
 	Execute(ctx context.Context, toolDef *schema.ToolDefinition, actionName string, inputs map[string]any, vars map[string]any) (*executor.Result, error)
 }
 
+// ApprovalProvider submits approval requests and optionally waits for responses.
+type ApprovalProvider interface {
+	// Submit sends an approval request and returns a ticket immediately.
+	Submit(ctx context.Context, req ApprovalRequest) (*ApprovalTicket, error)
+	// Wait blocks until the ticket is resolved or context is cancelled.
+	Wait(ctx context.Context, ticket *ApprovalTicket) (*ApprovalResponse, error)
+}
+
+// ApprovalRequest contains the context for an approval decision.
+type ApprovalRequest struct {
+	RunID        string         `json:"run_id"`
+	StepID       string         `json:"step_id"`
+	RunbookName  string         `json:"runbook_name"`
+	RiskLevel    string         `json:"risk_level"`
+	Contract     map[string]any `json:"contract"`
+	Inputs       map[string]any `json:"inputs"`
+	MinApprovers int            `json:"min_approvers"`
+}
+
+// ApprovalTicket represents a pending approval.
+type ApprovalTicket struct {
+	TicketID string    `json:"ticket_id"`
+	Status   string    `json:"status"` // pending, approved, rejected, expired
+	Created  time.Time `json:"created"`
+}
+
+// ApprovalResponse is the result of an approval decision.
+type ApprovalResponse struct {
+	TicketID   string    `json:"ticket_id"`
+	Approved   bool      `json:"approved"`
+	ApproverID string    `json:"approver_id"`
+	Method     string    `json:"method"`
+	Timestamp  time.Time `json:"timestamp"`
+	Reason     string    `json:"reason,omitempty"`
+}
+
 // defaultExecutor delegates to executor.RunTool.
 type defaultExecutor struct{}
 
@@ -42,9 +78,10 @@ type RunConfig struct {
 	BaseDir     string
 	ProjectRoot string
 	Trace       *trace.Writer
-	Stdin       io.Reader    // for manual step input; defaults to os.Stdin
-	Stdout      io.Writer    // for output; defaults to os.Stdout
-	ToolExec    ToolExecutor // custom tool executor (e.g., replay); nil uses default
+	Stdin       io.Reader        // for manual step input; defaults to os.Stdin
+	Stdout      io.Writer        // for output; defaults to os.Stdout
+	ToolExec    ToolExecutor     // custom tool executor (e.g., replay); nil uses default
+	Approval    ApprovalProvider // custom approval provider; nil uses stdin
 }
 
 // RunResult is the outcome of executing a runbook.
@@ -64,6 +101,7 @@ type Engine struct {
 	tools        map[string]*schema.ToolDefinition
 	startTime    time.Time
 	toolExec     ToolExecutor
+	approval     ApprovalProvider
 	VisitedSteps []string // ordered list of step IDs executed (for test harness)
 }
 
@@ -98,12 +136,18 @@ func New(rb *schema.Runbook, cfg RunConfig) *Engine {
 		te = &defaultExecutor{}
 	}
 
+	ap := cfg.Approval
+	if ap == nil {
+		ap = &stdinApprovalProvider{stdin: cfg.Stdin, stdout: cfg.Stdout}
+	}
+
 	return &Engine{
 		cfg:      cfg,
 		rb:       rb,
 		vars:     vars,
 		trace:    cfg.Trace,
 		toolExec: te,
+		approval: ap,
 		tools:    make(map[string]*schema.ToolDefinition),
 	}
 }
@@ -305,7 +349,7 @@ func (e *Engine) executeStep(ctx context.Context, step schema.Step, stepID strin
 			}
 
 		case schema.DecisionRequireApproval:
-			approved := e.requestApproval(stepID, decision)
+			approved := e.requestApproval(ctx, stepID, decision)
 			if !approved {
 				if e.trace != nil {
 					e.trace.EmitStepStart(stepID, string(step.Type), nil)
@@ -1167,22 +1211,84 @@ func matchPattern(pattern, value string) (bool, error) {
 	return re.MatchString(value), nil
 }
 
-func (e *Engine) requestApproval(stepID string, decision governance.Decision) bool {
+func (e *Engine) requestApproval(ctx context.Context, stepID string, decision governance.Decision) bool {
 	if e.cfg.Mode == "dry-run" {
 		return true
 	}
-	min := decision.MinApprovers
-	if min == 0 {
-		min = 1
+
+	req := ApprovalRequest{
+		RunID:        e.cfg.RunID,
+		StepID:       stepID,
+		RunbookName:  e.rb.Meta.Name,
+		RiskLevel:    string(decision.RiskLevel),
+		MinApprovers: decision.MinApprovers,
 	}
-	fmt.Fprintf(e.cfg.Stdout, "\n  ⚠ Step %s requires approval (risk: %s, min approvers: %d)\n", stepID, decision.RiskLevel, min)
-	fmt.Fprintf(e.cfg.Stdout, "  Approve? [y/N]: ")
-	scanner := bufio.NewScanner(e.cfg.Stdin)
+
+	ticket, err := e.approval.Submit(ctx, req)
+	if err != nil {
+		return false
+	}
+
+	// Emit approval_submitted trace event
+	if e.trace != nil {
+		e.trace.Emit(trace.EventType("approval_submitted"), map[string]any{
+			"ticket_id":  ticket.TicketID,
+			"step_id":    stepID,
+			"risk_level": string(decision.RiskLevel),
+		})
+	}
+
+	resp, err := e.approval.Wait(ctx, ticket)
+	if err != nil {
+		return false
+	}
+
+	// Emit approval_resolved trace event
+	if e.trace != nil {
+		e.trace.Emit(trace.EventType("approval_resolved"), map[string]any{
+			"ticket_id":   resp.TicketID,
+			"approved":    resp.Approved,
+			"approver_id": resp.ApproverID,
+			"method":      resp.Method,
+		})
+	}
+
+	return resp.Approved
+}
+
+// stdinApprovalProvider implements ApprovalProvider using stdin/stdout.
+// Submit+Wait happen atomically — Submit creates a ticket, Wait prompts and blocks.
+type stdinApprovalProvider struct {
+	stdin  io.Reader
+	stdout io.Writer
+}
+
+func (p *stdinApprovalProvider) Submit(ctx context.Context, req ApprovalRequest) (*ApprovalTicket, error) {
+	return &ApprovalTicket{
+		TicketID: fmt.Sprintf("stdin-%s-%s", req.RunID, req.StepID),
+		Status:   "pending",
+		Created:  time.Now(),
+	}, nil
+}
+
+func (p *stdinApprovalProvider) Wait(ctx context.Context, ticket *ApprovalTicket) (*ApprovalResponse, error) {
+	min := 1
+	fmt.Fprintf(p.stdout, "\n  ⚠ Approval required (ticket: %s)\n", ticket.TicketID)
+	fmt.Fprintf(p.stdout, "  Approve? [y/N]: ")
+	scanner := bufio.NewScanner(p.stdin)
+	approved := false
 	if scanner.Scan() {
 		answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
-		return answer == "y" || answer == "yes"
+		approved = answer == "y" || answer == "yes"
 	}
-	return false
+	_ = min
+	return &ApprovalResponse{
+		TicketID:   ticket.TicketID,
+		Approved:   approved,
+		ApproverID: "stdin-user",
+		Method:     "stdin",
+		Timestamp:  time.Now(),
+	}, nil
 }
 
 func (e *Engine) loadTools() {

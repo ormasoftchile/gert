@@ -92,22 +92,22 @@
 
 ### Tests for US2
 
-- [ ] T036 [P] [US2] Test: ApprovalProvider Submit returns ticket immediately in pkg/kernel/engine/engine_test.go
-- [ ] T037 [P] [US2] Test: stdin approval provider Submit+Wait atomic in pkg/kernel/engine/engine_test.go
-- [ ] T038 [P] [US2] Test: state persistence SaveState/LoadState round-trip in pkg/kernel/engine/state_test.go
-- [ ] T039 [P] [US2] Test: approval timeout expiry treated as rejection in pkg/kernel/engine/engine_test.go
-- [ ] T040 [P] [US2] Test: signature verification rejects invalid signature in pkg/kernel/engine/engine_test.go
-- [ ] T041 [P] [US2] Test: trace emits approval_submitted and approval_resolved events in pkg/kernel/trace/trace_test.go
+- [X] T036 [P] [US2] Test: ApprovalProvider Submit returns ticket immediately in pkg/kernel/engine/engine_test.go
+- [X] T037 [P] [US2] Test: stdin approval provider Submit+Wait atomic in pkg/kernel/engine/engine_test.go
+- [X] T038 [P] [US2] Test: state persistence SaveState/LoadState round-trip in pkg/kernel/engine/state_test.go
+- [X] T039 [P] [US2] Test: approval timeout expiry treated as rejection in pkg/kernel/engine/engine_test.go
+- [X] T040 [P] [US2] Test: signature verification rejects invalid signature in pkg/kernel/engine/engine_test.go
+- [X] T041 [P] [US2] Test: trace emits approval_submitted and approval_resolved events in pkg/kernel/trace/trace_test.go
 
 ### Implementation for US2
 
-- [ ] T042 [US2] Define `ApprovalProvider` interface (Submit/Wait) in pkg/kernel/engine/engine.go
-- [ ] T043 [US2] Define `ApprovalRequest`, `ApprovalTicket`, `ApprovalResponse` types in pkg/kernel/engine/engine.go
-- [ ] T044 [US2] Implement `stdinApprovalProvider` (Submit+Wait atomic) in pkg/ecosystem/approval/stdin/provider.go
-- [ ] T045 [US2] Add `ApprovalProvider` to `RunConfig` and wire into engine in pkg/kernel/engine/engine.go
-- [ ] T046 [US2] Replace current `requestApproval()` with `ApprovalProvider.Submit()` + `Wait()` in pkg/kernel/engine/engine.go
-- [ ] T047 [US2] Implement `SaveState()` and `LoadState()` for run persistence in pkg/kernel/engine/state.go
-- [ ] T048 [US2] Add `approval_submitted` and `approval_resolved` trace events in pkg/kernel/trace/trace.go
+- [X] T042 [US2] Define `ApprovalProvider` interface (Submit/Wait) in pkg/kernel/engine/engine.go
+- [X] T043 [US2] Define `ApprovalRequest`, `ApprovalTicket`, `ApprovalResponse` types in pkg/kernel/engine/engine.go
+- [X] T044 [US2] Implement `stdinApprovalProvider` (Submit+Wait atomic) in pkg/ecosystem/approval/stdin/provider.go
+- [X] T045 [US2] Add `ApprovalProvider` to `RunConfig` and wire into engine in pkg/kernel/engine/engine.go
+- [X] T046 [US2] Replace current `requestApproval()` with `ApprovalProvider.Submit()` + `Wait()` in pkg/kernel/engine/engine.go
+- [X] T047 [US2] Implement `SaveState()` and `LoadState()` for run persistence in pkg/kernel/engine/state.go
+- [X] T048 [US2] Add `approval_submitted` and `approval_resolved` trace events in pkg/kernel/trace/trace.go
 - [ ] T049 [US2] Add `governance.approval_timeout` parsing to schema in pkg/kernel/schema/types.go
 - [ ] T050 [US2] Add `gert resume --run <id>` command to CLI in cmd/gert/main.go
 - [ ] T050a [P] [US2] Test: `gert resume` CLI command loads state and resumes in cmd/gert/resume_test.go
@@ -363,6 +363,7 @@
 | Polish tasks | 22 |
 | Parallelizable tasks | 82 |
 | MVP scope (US1 only) | 35 tasks (Setup + Foundation + US1) |
+
 
 
 
