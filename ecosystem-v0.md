@@ -562,6 +562,8 @@ Kernel                          Extension Runner (stdio)
 
 **Statelessness invariant:** Extension runners **must be stateless between `execute` calls**. The kernel does not guarantee process isolation per step — it reuses the runner process for efficiency. Runners that cache data or mutate internal state between calls will break replay determinism.
 
+**Contract honesty:** gert enforces declared contracts but **cannot verify undeclared side effects**. A tool declaring `effects: [network]` could also write to the filesystem. Governance must assume tools and extensions are trusted code. The contract model is a declaration of intent, not a sandbox.
+
 **Lifecycle:** spawn on first use, reuse for subsequent extension steps referencing the same runner, shutdown on engine completion. Same pattern as jsonrpc tool transport.
 
 ### 6.4 Approval Signing — Algorithm Flexibility
@@ -1074,6 +1076,8 @@ scenarios/srv1-incident/
 The `scenario.yaml` is built during execution: every tool response is captured and written to the `tool_responses` section. Every manual step's evidence is captured to the `evidence` section. The `test.yaml` is generated from the actual outcome — it asserts that a replay produces the same result.
 
 **Engine change:** Add a `Recorder` that wraps `ToolExecutor`, intercepts responses, and writes the scenario file at run completion.
+
+**Secrets safety:** Recorded scenarios inherit trace redaction rules. Secret values declared in `secrets` blocks are redacted from captured tool stdout/stderr before writing to scenario files. Scenario files must never contain secret values.
 
 ### 10.2 Scenario Diffing
 
