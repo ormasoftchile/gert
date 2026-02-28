@@ -74,9 +74,9 @@
 - [X] T028 [US1] Add validation rule: error if both `side_effects` and `effects` declared in pkg/kernel/validate/domain.go
 - [X] T029 [US1] Add validation rule: deprecation warning on `side_effects` usage in pkg/kernel/validate/domain.go
 - [X] T030 [US1] Add validation rule: secrets env var presence check (warning) in pkg/kernel/validate/domain.go
-- [ ] T031 [US1] Add secrets redaction to trace writer output in pkg/kernel/trace/trace.go
-- [ ] T032 [US1] Update dry-run mode to show effects + secrets info in pkg/kernel/engine/engine.go
-- [ ] T033 Write/update 5 tool pack YAML files with effects taxonomy (update existing curl/ping, create new kubectl/az/jq) in tools/curl.tool.yaml, tools/kubectl.tool.yaml, tools/az.tool.yaml, tools/ping.tool.yaml, tools/jq.tool.yaml
+- [X] T031 [US1] Add secrets redaction to trace writer output in pkg/kernel/trace/trace.go
+- [X] T032 [US1] Update dry-run mode to show effects + secrets info in pkg/kernel/engine/engine.go
+- [X] T033 Write/update 5 tool pack YAML files with effects taxonomy (update existing curl/ping, create new kubectl/az/jq) in tools/curl.tool.yaml, tools/kubectl.tool.yaml, tools/az.tool.yaml, tools/ping.tool.yaml, tools/jq.tool.yaml
 - [ ] T034 [US1] Write service-health-diagnostic runbook with effects-based governance in runbooks/service-health-diagnostic.yaml
 - [ ] T035 [US1] Write 2+ scenario tests for service-health-diagnostic in runbooks/scenarios/service-health-diagnostic/
 
@@ -363,5 +363,6 @@
 | Polish tasks | 22 |
 | Parallelizable tasks | 82 |
 | MVP scope (US1 only) | 35 tasks (Setup + Foundation + US1) |
+
 
 

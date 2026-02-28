@@ -14,11 +14,10 @@ contract:
       type: string
     body:
       type: string
-  side_effects: false
+  effects:
+    - network
   deterministic: true
   idempotent: true
-  reads:
-    - network
   writes: []
 actions:
   check:

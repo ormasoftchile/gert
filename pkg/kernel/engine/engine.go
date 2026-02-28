@@ -128,6 +128,28 @@ func (e *Engine) Run(ctx context.Context) *RunResult {
 	// Pre-load tool definitions
 	e.loadTools()
 
+	// Configure secret redaction on trace writer
+	if e.trace != nil {
+		var secretEnvVars []string
+		// Collect from runbook meta
+		for _, s := range e.rb.Meta.Secrets {
+			if s.Env != "" {
+				secretEnvVars = append(secretEnvVars, s.Env)
+			}
+		}
+		// Collect from loaded tool definitions
+		for _, td := range e.tools {
+			for _, s := range td.Meta.Secrets {
+				if s.Env != "" {
+					secretEnvVars = append(secretEnvVars, s.Env)
+				}
+			}
+		}
+		if len(secretEnvVars) > 0 {
+			e.trace.SetSecrets(secretEnvVars)
+		}
+	}
+
 	// Execute steps
 	result := e.executeSteps(ctx, e.rb.Steps, true)
 
@@ -349,13 +371,26 @@ func (e *Engine) executeTool(ctx context.Context, step schema.Step, stepID strin
 		c := e.resolveContract(step)
 		if c != nil {
 			r := c.Resolved()
-			fmt.Fprintf(e.cfg.Stdout, "    contract: side_effects=%v deterministic=%v idempotent=%v risk=%s\n",
-				*r.SideEffects, *r.Deterministic, *r.Idempotent, r.Risk())
+			if len(r.Effects) > 0 {
+				fmt.Fprintf(e.cfg.Stdout, "    effects: %v\n", r.Effects)
+			}
+			fmt.Fprintf(e.cfg.Stdout, "    deterministic=%v idempotent=%v risk=%s\n",
+				*r.Deterministic, *r.Idempotent, r.Risk())
 			if len(r.Reads) > 0 {
 				fmt.Fprintf(e.cfg.Stdout, "    reads: %v\n", r.Reads)
 			}
 			if len(r.Writes) > 0 {
 				fmt.Fprintf(e.cfg.Stdout, "    writes: %v\n", r.Writes)
+			}
+		}
+		// Show secrets status
+		if td != nil && len(td.Meta.Secrets) > 0 {
+			for _, s := range td.Meta.Secrets {
+				status := "✓ set"
+				if os.Getenv(s.Env) == "" {
+					status = "✗ missing"
+				}
+				fmt.Fprintf(e.cfg.Stdout, "    secret %s: %s\n", s.Env, status)
 			}
 		}
 		if e.trace != nil {

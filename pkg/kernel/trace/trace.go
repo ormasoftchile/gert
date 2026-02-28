@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -56,10 +57,11 @@ type Failure struct {
 
 // Writer writes trace events to an append-only JSONL stream.
 type Writer struct {
-	mu    sync.Mutex
-	w     io.Writer
-	runID string
-	enc   *json.Encoder
+	mu         sync.Mutex
+	w          io.Writer
+	runID      string
+	enc        *json.Encoder
+	secretVars []string // env var names whose values should be redacted
 }
 
 // NewWriter creates a trace writer that writes to the given io.Writer.
@@ -69,6 +71,24 @@ func NewWriter(w io.Writer, runID string) *Writer {
 		runID: runID,
 		enc:   json.NewEncoder(w),
 	}
+}
+
+// SetSecrets configures the writer to redact values of the given env vars from trace output.
+func (tw *Writer) SetSecrets(envVars []string) {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	tw.secretVars = envVars
+}
+
+// RedactSecrets replaces secret values in a string with "<REDACTED>".
+func (tw *Writer) RedactSecrets(s string) string {
+	for _, envVar := range tw.secretVars {
+		val := os.Getenv(envVar)
+		if val != "" && len(val) > 0 {
+			s = strings.ReplaceAll(s, val, "<REDACTED>")
+		}
+	}
+	return s
 }
 
 // NewFileWriter creates a trace writer that appends to a JSONL file.
