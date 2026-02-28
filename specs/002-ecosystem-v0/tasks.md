@@ -20,7 +20,7 @@
 **Purpose**: Project structure, shared infrastructure, dependency wiring
 
 - [ ] T001 Create `pkg/ecosystem/` directory structure per plan.md in pkg/ecosystem/tui/, pkg/ecosystem/mcp/, pkg/ecosystem/approval/stdin/, pkg/ecosystem/recorder/
-- [ ] T002 Create `cmd/gert/` directory with Cobra CLI wiring (replaces cmd/gert-kernel/) in cmd/gert/main.go
+- [ ] T002 Create `cmd/gert/` directory with Cobra CLI wiring (copy from cmd/gert-kernel/, then extend) in cmd/gert/main.go
 - [ ] T003 [P] Create `cmd/gert-tui/` entrypoint with Bubble Tea bootstrap in cmd/gert-tui/main.go
 - [ ] T004 [P] Create `cmd/gert-mcp/` entrypoint with MCP server bootstrap in cmd/gert-mcp/main.go
 - [ ] T005 [P] Create `tools/` directory with 5 tool pack YAML stubs in tools/curl.tool.yaml, tools/kubectl.tool.yaml, tools/az.tool.yaml, tools/ping.tool.yaml, tools/jq.tool.yaml
@@ -37,7 +37,7 @@
 - [ ] T007 Add `context.Context` parameter to `ToolExecutor.Execute()` interface and update `defaultExecutor` in pkg/kernel/engine/engine.go
 - [ ] T008 Add `context.Context` parameter to `Engine.Run()` and thread through `executeSteps()` → `executeStep()` in pkg/kernel/engine/engine.go
 - [ ] T009 Update all engine tests to pass `context.Background()` to `Run()` in pkg/kernel/engine/engine_test.go
-- [ ] T010 Update `cmd/gert-kernel/main.go` to pass context to engine in cmd/gert-kernel/main.go
+- [ ] T010 Update `cmd/gert/main.go` to pass context to engine in cmd/gert/main.go
 - [ ] T011 [P] Update `pkg/kernel/testing/runner.go` to pass context through replay execution in pkg/kernel/testing/runner.go
 - [ ] T012 [P] Update `pkg/kernel/testing/integration_test.go` to pass context in pkg/kernel/testing/integration_test.go
 - [ ] T013 Verify all 72 existing tests pass with context threading — `go test ./pkg/kernel/... -count=1`
@@ -76,7 +76,7 @@
 - [ ] T030 [US1] Add validation rule: secrets env var presence check (warning) in pkg/kernel/validate/domain.go
 - [ ] T031 [US1] Add secrets redaction to trace writer output in pkg/kernel/trace/trace.go
 - [ ] T032 [US1] Update dry-run mode to show effects + secrets info in pkg/kernel/engine/engine.go
-- [ ] T033 [US1] Write 5 tool pack YAML files with effects taxonomy in tools/curl.tool.yaml, tools/kubectl.tool.yaml, tools/az.tool.yaml, tools/ping.tool.yaml, tools/jq.tool.yaml
+- [ ] T033 Write/update 5 tool pack YAML files with effects taxonomy (update existing curl/ping, create new kubectl/az/jq) in tools/curl.tool.yaml, tools/kubectl.tool.yaml, tools/az.tool.yaml, tools/ping.tool.yaml, tools/jq.tool.yaml
 - [ ] T034 [US1] Write service-health-diagnostic runbook with effects-based governance in runbooks/service-health-diagnostic.yaml
 - [ ] T035 [US1] Write 2+ scenario tests for service-health-diagnostic in runbooks/scenarios/service-health-diagnostic/
 
@@ -103,13 +103,14 @@
 
 - [ ] T042 [US2] Define `ApprovalProvider` interface (Submit/Wait) in pkg/kernel/engine/engine.go
 - [ ] T043 [US2] Define `ApprovalRequest`, `ApprovalTicket`, `ApprovalResponse` types in pkg/kernel/engine/engine.go
-- [ ] T044 [US2] Implement `stdinApprovalProvider` (Submit+Wait atomic) in pkg/kernel/engine/approval_stdin.go
+- [ ] T044 [US2] Implement `stdinApprovalProvider` (Submit+Wait atomic) in pkg/ecosystem/approval/stdin/provider.go
 - [ ] T045 [US2] Add `ApprovalProvider` to `RunConfig` and wire into engine in pkg/kernel/engine/engine.go
 - [ ] T046 [US2] Replace current `requestApproval()` with `ApprovalProvider.Submit()` + `Wait()` in pkg/kernel/engine/engine.go
 - [ ] T047 [US2] Implement `SaveState()` and `LoadState()` for run persistence in pkg/kernel/engine/state.go
 - [ ] T048 [US2] Add `approval_submitted` and `approval_resolved` trace events in pkg/kernel/trace/trace.go
 - [ ] T049 [US2] Add `governance.approval_timeout` parsing to schema in pkg/kernel/schema/types.go
 - [ ] T050 [US2] Add `gert resume --run <id>` command to CLI in cmd/gert/main.go
+- [ ] T050a [P] [US2] Test: `gert resume` CLI command loads state and resumes in cmd/gert/resume_test.go
 - [ ] T051 [US2] Write k8s-pod-restart runbook exercising approval gate in runbooks/k8s-pod-restart.yaml
 - [ ] T052 [US2] Write 2+ scenario tests for k8s-pod-restart in runbooks/scenarios/k8s-pod-restart/
 
@@ -205,6 +206,7 @@
 - [ ] T095 [US5] Add `Principal` struct to trace event types in pkg/kernel/trace/trace.go
 - [ ] T096 [US5] Add run identity (actor, host, version, hashes) to run_start emission in pkg/kernel/engine/engine.go
 - [ ] T097 [US5] Implement `gert trace verify` command in cmd/gert/main.go
+- [ ] T097a [P] [US5] Test: `gert trace verify` detects broken chain and validates signature in cmd/gert/trace_verify_test.go
 - [ ] T098 [US5] Add `GERT_TRACE_SIGNING_KEY` / `GERT_TRACE_SIGNING_KEY_ID` env var support in pkg/kernel/trace/trace.go
 - [ ] T099 [US5] Update RunConfig to include Actor and Host fields in pkg/kernel/engine/engine.go
 
@@ -226,6 +228,7 @@
 ### Implementation for US6
 
 - [ ] T102 [US6] Implement TUI Bubble Tea model (app state, message types) in pkg/ecosystem/tui/model.go
+- [ ] T102a [US6] Add migration task: deprecate existing `pkg/tui/` — port reusable components (styles, layout patterns) to `pkg/ecosystem/tui/`, mark old package as legacy
 - [ ] T103 [US6] Implement step list view with status icons in pkg/ecosystem/tui/views.go
 - [ ] T104 [US6] Implement output panel view in pkg/ecosystem/tui/views.go
 - [ ] T105 [US6] Implement status bar view in pkg/ecosystem/tui/views.go
@@ -290,15 +293,21 @@
 - [ ] T123 [P] Write incident-triage runbook with extension metadata in runbooks/incident-triage.yaml
 - [ ] T124 [P] Write 2+ scenario tests for incident-triage in runbooks/scenarios/incident-triage/
 - [ ] T125 [P] Implement contract violation detection in engine after tool step execution in pkg/kernel/engine/engine.go
+- [ ] T125a [P] Implement `contract_violations: deny` governance matcher — promotes violations to step errors in pkg/kernel/governance/governance.go
+- [ ] T125b [P] Test: `contract_violations: deny` halts on violation in pkg/kernel/governance/governance_test.go
 - [ ] T126 [P] Test contract violation detection (undeclared outputs, missing outputs) in pkg/kernel/engine/engine_test.go
 - [ ] T127 [P] Implement probe mode (`--mode probe`) in engine in pkg/kernel/engine/engine.go
 - [ ] T128 [P] Test probe mode (writes skipped, read-only executed) in pkg/kernel/engine/engine_test.go
 - [ ] T129 [P] Implement extension runner JSON-RPC client in pkg/kernel/executor/extension.go
 - [ ] T130 [P] Test extension runner protocol (initialize/execute/shutdown) in pkg/kernel/executor/extension_test.go
 - [ ] T131 [P] Implement auto-record mode (Recorder wrapping ToolExecutor) in pkg/ecosystem/recorder/recorder.go
+- [ ] T131a [P] Wire secret redaction into recorder output — scenario files must never contain secret values in pkg/ecosystem/recorder/recorder.go
+- [ ] T131b [P] Test: recorded scenario redacts secrets from tool stdout in pkg/ecosystem/recorder/recorder_test.go
 - [ ] T132 [P] Test auto-record captures tool responses into scenario.yaml in pkg/ecosystem/recorder/recorder_test.go
 - [ ] T133 [P] Implement `gert diff` command for scenario diffing in cmd/gert/main.go
+- [ ] T133a [P] Test: `gert diff` detects outcome changes across scenarios in cmd/gert/diff_test.go
 - [ ] T134 [P] Implement `gert outcomes` command for aggregation in cmd/gert/main.go
+- [ ] T134a [P] Test: `gert outcomes` aggregates from trace files correctly in cmd/gert/outcomes_test.go
 - [ ] T135 Run quickstart.md validation — execute all scenarios in quickstart end-to-end
 - [ ] T136 Verify all existing 72 tests + new tests pass: `go test ./pkg/kernel/... -count=1`
 
@@ -340,17 +349,17 @@
 
 | Metric | Count |
 |--------|-------|
-| Total tasks | 136 |
+| Total tasks | 147 |
 | Setup tasks | 6 |
 | Foundation tasks | 7 |
 | US1 tasks (P1) | 22 |
-| US2 tasks (P1) | 17 |
+| US2 tasks (P1) | 18 |
 | US3 tasks (P2) | 23 |
 | US4 tasks (P2) | 11 |
-| US5 tasks (P2) | 13 |
-| US6 tasks (P3) | 10 |
+| US5 tasks (P2) | 14 |
+| US6 tasks (P3) | 11 |
 | US7 tasks (P3) | 6 |
 | US8 tasks (P3) | 7 |
-| Polish tasks | 14 |
-| Parallelizable tasks | 74 |
+| Polish tasks | 22 |
+| Parallelizable tasks | 82 |
 | MVP scope (US1 only) | 35 tasks (Setup + Foundation + US1) |
