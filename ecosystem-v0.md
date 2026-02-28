@@ -1,32 +1,48 @@
 # Gert Ecosystem v0 — Design Document
 
-> **Everything outside the kernel that makes gert useful.**
+> **Extension points, packaging, and host surfaces for the gert kernel.**
 
 **Date**: 2026-02-28
 **Status**: Draft
-**Depends on**: `kernel-v0.md` (all kernel packages assumed stable)
+**Depends on**: `kernel-v0.md`
+
+**Stability notice:** Kernel interfaces (`ToolExecutor`, contract model, trace format) are **unstable** until hardened by real adoption. Expect breaking changes in: approval semantics, contract taxonomy, input resolution, extension runner. The kernel is functional but not frozen.
 
 ---
 
 ## 1. Overview
 
-The kernel executes runbooks. The ecosystem makes runbooks usable by humans, AI agents, and organizations. This document defines the ecosystem components, their dependencies, and the interfaces they use to extend the kernel.
+The kernel executes runbooks. The ecosystem defines:
+1. **Extension points** — interfaces the kernel exposes for external behavior (approval, input resolution, tool transports)
+2. **Contract taxonomy** — how effects/resources are classified for governance
+3. **Packaging** — distribution, versioning, tool packs
+4. **Host surfaces** — TUI, MCP, VS Code, webhooks
 
-### Build Order
+This document is about **extension points and packaging first, surfaces second.**
+
+### Build Order — Two Tracks
 
 ```
-Phase A: Real Runbooks + Tools         ← validate the kernel works
-Phase B: Approval Provider Interface   ← kernel extension for governance UX
-Phase C: TUI                           ← interactive experience (separate binary)
-Phase D: MCP Server                    ← AI-agent-facing interface (separate binary)
-Phase E: VS Code Extension             ← richest human experience
-Phase F: Input Providers               ← pluggable input resolution
-Phase G: Secrets + Contract Hardening  ← secrets convention, contract violation detection, dry-run probes
-Phase H: Replay Excellence             ← auto-record, scenario diffing, golden promotion
-Phase I: Outcome Intelligence          ← aggregation CLI, outcome webhooks
-Phase J: Trace Integrity               ← hash chaining, trace signing
-Phase K: Watch Mode                    ← lightweight scheduling loop
+Track 1: Primitives (must do first — kernel hardening)
+  1a. Real runbooks + tool packs        ← validate the kernel
+  1b. Contract taxonomy                 ← effects vs. writes, governance clarity
+  1c. Resumable approval                ← kernel interface, not blocking
+  1d. Input resolution semantics        ← kernel-owned semantics, ecosystem implementations
+  1e. Secrets convention                ← declaration, validation, redaction
+  1f. Extension step runner             ← kernel dispatches to external executors
+  1g. Trace integrity                   ← hash chaining, verification policy
+  1h. Contract violation detection      ← runtime and probe mode
+
+Track 2: Surfaces (after Track 1 is solid)
+  2a. TUI (gert-tui)                   ← separate binary
+  2b. MCP Server (gert-mcp)            ← separate binary
+  2c. VS Code Extension                ← uses MCP or JSON-RPC backend
+  2d. Auto-record + scenario diffing   ← replay excellence
+  2e. Outcome intelligence             ← aggregation CLI, webhooks
+  2f. Watch mode                       ← lightweight scheduling loop
 ```
+
+Track 1 changes kernel packages. Track 2 is ecosystem-only (imports kernel, never modifies it).
 
 ### Distribution Model
 
@@ -42,21 +58,26 @@ cmd/
                    Exposes kernel operations as MCP tools. Optional install.
 ```
 
-**Install what you need:**
+**Versioning and distribution:**
 
 ```bash
-go install github.com/ormasoftchile/gert/cmd/gert@latest       # everyone
-go install github.com/ormasoftchile/gert/cmd/gert-tui@latest    # operators
-go install github.com/ormasoftchile/gert/cmd/gert-mcp@latest    # AI agents
+# Tagged releases — never @latest in production
+go install github.com/ormasoftchile/gert/cmd/gert@v0.1.0
+go install github.com/ormasoftchile/gert/cmd/gert-tui@v0.1.0
+go install github.com/ormasoftchile/gert/cmd/gert-mcp@v0.1.0
 ```
+
+- All binaries share a version tag from the monorepo
+- GitHub Releases with checksums for each binary (linux/darwin/windows, amd64/arm64)
+- `gert version` prints the tag + commit hash for reproducibility
+- For approved toolchains: organizations pin to a release tag in their CI config or internal package manager
 
 **Why separate binaries:**
 
 - Core CLI stays scriptable — pipes, `--json`, `jq`, CI-friendly, no terminal dependencies
 - TUI pulls Bubble Tea + lipgloss + glamour — unnecessary for automation
 - MCP server has its own SDK dependency — unnecessary for humans
-- Follows industry pattern: `kubectl` (core) + `k9s` (TUI), `git` (core) + `lazygit` (TUI), `docker` (core) + `lazydocker` (TUI)
-- Same kernel underneath, different front-ends
+- Follows industry pattern: `kubectl` (core) + `k9s` (TUI), `git` (core) + `lazygit` (TUI)
 
 ### Package Layout
 
@@ -148,20 +169,102 @@ Build 3–5 operational runbooks that exercise the full kernel surface. Find bug
 
 ---
 
-## 3. Phase B — Approval Provider Interface
+## 3. Track 1b — Contract Taxonomy
 
 ### Problem
 
-The kernel's `requestApproval()` currently reads from stdin. This blocks adoption for any non-terminal use case. Approvals need to route to Teams, Slack, PagerDuty, email, or any async system — without the kernel knowing about any of them.
+The current contract model conflates "effects" with "resources". A tool declaring `side_effects: false, reads: [network]` is incoherent — a network call *is* an effect in many governance models. Authors will produce inconsistent contracts because the taxonomy is unclear.
 
-### Design
+### Design: Split effects from resources
 
-#### Kernel interface (added to engine)
+```yaml
+contract:
+  effects: [network]                    # what systems does this touch?
+  writes: [service]                     # what domain resources does this mutate?
+  reads: [network]                      # what domain resources does this observe?
+  idempotent: true
+  deterministic: false
+```
+
+**`effects`** — Observable interactions with external systems. Used by governance for risk classification.
+
+| Effect | Meaning |
+|--------|---------|
+| `network` | Makes network calls (HTTP, DNS, TCP) |
+| `filesystem` | Reads/writes local files |
+| `process` | Spawns or kills processes |
+| `kubernetes` | Interacts with K8s API |
+| `azure` | Interacts with Azure Resource Manager |
+| `aws` | Interacts with AWS APIs |
+| `database` | Queries or mutates a database |
+
+**`reads` / `writes`** — Domain-specific resource tags for parallel safety (unchanged from kernel-v0). Opaque strings. The kernel does set intersection math, nothing more.
+
+**`side_effects`** — Derived, not declared. A tool has side effects if `effects` is non-empty AND `writes` is non-empty. Or: governance policy can define what combination of effects + writes constitutes "side effects" for their organization.
+
+### Governance uses `effects` first
+
+```yaml
+governance:
+  rules:
+    - effects: [kubernetes]
+      writes: [production]
+      action: require-approval
+      min_approvers: 2
+    - effects: [network]
+      action: allow                     # network reads are fine
+    - default: allow
+```
+
+### Risk classification (revised)
+
+| Condition | Risk |
+|-----------|------|
+| No effects, no writes | Low |
+| Effects but no writes (read-only network calls) | Low |
+| Effects + writes + idempotent | Medium |
+| Effects + writes + not idempotent + deterministic | High |
+| Effects + writes + not idempotent + not deterministic | Critical |
+
+### Migration
+
+`side_effects: true/false` remains supported as shorthand. If `effects` is present, it takes precedence. If only `side_effects` is declared, the kernel infers `effects: [unknown]` for `true` and `effects: []` for `false`.
+
+### Schema change
+
+- Add `Effects []string` to `contract.Contract`
+- `SideEffects` becomes computed from `Effects + Writes` (or stays as explicit override for backward compat)
+- Governance rules gain `Effects` matching alongside `Reads`/`Writes`
+- Validation rule: warn if `side_effects: false` but `effects` is non-empty
+
+---
+
+## 4. Track 1c — Resumable Approval
+
+### Problem
+
+The current `ApprovalProvider` is synchronous: `RequestApproval() → blocks → returns response`. This works for stdin but deadlocks or creates ugly poll loops for async systems (Teams, Slack, PagerDuty). Worse — it turns every approval provider into a mini workflow engine.
+
+### Design: Ticket-based, resumable
+
+The kernel doesn't block on approval. It:
+1. Requests approval → gets a **ticket** back immediately
+2. Persists the run state as "pending approval"
+3. Exits (or waits, depending on mode)
+4. Resumes when the approval arrives
+
+#### Kernel interface
 
 ```go
-// ApprovalProvider routes approval requests to external systems.
+// ApprovalProvider submits approval requests and optionally waits for responses.
 type ApprovalProvider interface {
-    RequestApproval(req ApprovalRequest) (*ApprovalResponse, error)
+    // Submit sends an approval request and returns a ticket immediately.
+    Submit(ctx context.Context, req ApprovalRequest) (*ApprovalTicket, error)
+
+    // Wait blocks until the ticket is resolved or context is cancelled.
+    // For synchronous providers (stdin), Submit+Wait happen atomically.
+    // For async providers (Teams), Wait polls or listens for callbacks.
+    Wait(ctx context.Context, ticket *ApprovalTicket) (*ApprovalResponse, error)
 }
 
 type ApprovalRequest struct {
@@ -176,9 +279,17 @@ type ApprovalRequest struct {
     MinApprovers int            `json:"min_approvers"`
     RequestedBy  string         `json:"requested_by,omitempty"`
     Extensions   map[string]any `json:"extensions,omitempty"`
+    Timeout      time.Duration  `json:"timeout,omitempty"`
+}
+
+type ApprovalTicket struct {
+    TicketID string    `json:"ticket_id"`
+    Status   string    `json:"status"`    // pending, approved, rejected, expired
+    Created  time.Time `json:"created"`
 }
 
 type ApprovalResponse struct {
+    TicketID   string    `json:"ticket_id"`
     Approved   bool      `json:"approved"`
     ApproverID string    `json:"approver_id"`
     Method     string    `json:"method"`
@@ -188,82 +299,138 @@ type ApprovalResponse struct {
 }
 ```
 
-#### Engine changes
+#### Engine flow
 
-- Add `ApprovalProvider` to `RunConfig` (like `ToolExecutor`)
-- Default implementation: `stdinApprovalProvider` (current behavior)
-- `requestApproval()` delegates to the provider instead of reading stdin
-- Trace records the full `ApprovalResponse` in `governance_decision` events
+```
+Engine                        ApprovalProvider            External System
+  │                                │                           │
+  │── Submit(req) ───────────────→ │── POST card ────────────→ │
+  │←── ApprovalTicket{pending} ───│                           │
+  │                                │                           │
+  │── trace: approval_pending { ticket_id, step_id }          │
+  │── persist state snapshot                                   │
+  │                                │                           │
+  │── Wait(ctx, ticket) ─────────→ │                           │
+  │   (blocks with ctx timeout)    │                           │  user approves
+  │                                │←── callback ──────────────│
+  │←── ApprovalResponse ──────────│                           │
+  │                                │                           │
+  │── trace: governance_decision { approved, approver, ticket_id }
+  │── execute step
+```
+
+#### Modes
+
+| Mode | Behavior |
+|------|----------|
+| **Synchronous** (stdin, TUI) | `Submit` + `Wait` happen atomically. Provider blocks internally. |
+| **Async with wait** (Teams + CLI) | `Submit` returns ticket. `Wait` polls/listens until response or timeout. Engine stays running. |
+| **Async with resume** (Teams + CI) | `Submit` returns ticket. Engine persists state and exits. Later: `gert resume --run <id> --ticket <id>` resumes from the pending step. |
+
+#### State persistence for resume
+
+When the engine encounters a pending approval in async mode:
+- Snapshot current state (vars, step index, trace position) to `runs/<run-id>/state.json`
+- Exit with code 0 and message: "Approval pending. Resume with: gert resume --run <run-id>"
+- `gert resume` loads the state snapshot, checks ticket status, continues execution
+
+This is the key insight: **the kernel doesn't need a workflow engine**. It needs persistence + resume. The approval provider is stateless from the kernel's perspective.
+
+#### Trace events
+
+- `approval_submitted`: `{ ticket_id, step_id, risk_level }`
+- `approval_resolved`: `{ ticket_id, approved, approver_id, method, signature }`
+
+#### Cryptographic signing + verification
+
+- Provider generates HMAC-SHA256 over `ticket_id + approved + timestamp` using a shared secret
+- The kernel supports a **verification policy**: if `governance.require_signed_approvals: true`, the engine verifies the signature before accepting the approval
+- Verification keys are provided via environment variable (`GERT_APPROVAL_VERIFY_KEY`)
+- If verification fails → approval treated as rejected, `contract_violation` trace event
+
+This addresses the critique that "if the kernel doesn't verify, anyone can feed fake signatures."
+
+---
+
+## 5. Track 1d — Input Resolution Semantics (Kernel-Owned)
+
+### Problem
+
+Input resolution is currently ecosystem-only, but it changes execution determinism, evaluation order, and trace meaning. If the kernel executes runbooks, it must own the semantics.
+
+### Design: Kernel defines semantics, ecosystem provides implementations
+
+#### Kernel-level spec (in `kernel-v0.md`)
+
+Input `from:` bindings have a defined resolution order:
+
+```yaml
+meta:
+  inputs:
+    hostname:
+      type: string
+      from: provider/cmdb.server.hostname   # resolved by named provider
+    zone:
+      type: string
+      from: prompt                           # resolved by prompting the user
+    threshold:
+      type: int
+      default: 200                           # fallback if not resolved
+```
+
+**Resolution order (kernel-defined):**
+
+1. CLI flags (`--var hostname=x`) — always wins
+2. Provider resolution (`from: provider/...`) — if provider is configured
+3. Prompt (`from: prompt`) — interactive input
+4. Default value — fallback
+5. Missing required → execution halts with clear error
+
+**Kernel contract:**
+- Inputs are resolved **before** engine execution starts (pre-processing)
+- Resolved values are passed as `RunConfig.Vars` — the engine never sees `from:` bindings
+- The trace `run_start` event records resolved inputs + their source (`cli`, `provider/cmdb`, `prompt`, `default`)
+- Provider failures are recorded in trace as `input_resolution` events
+
+#### Interface (kernel package, ecosystem implementations)
+
+```go
+// InputResolver is the kernel interface for input resolution.
+// Lives in pkg/kernel/schema/ or pkg/kernel/engine/.
+type InputResolver interface {
+    Resolve(ctx context.Context, binding InputBinding) (string, error)
+}
+
+type InputBinding struct {
+    Name     string // input name
+    From     string // "prompt", "provider/cmdb.server.hostname", etc.
+    Type     string // string, int, bool
+    Default  any    // fallback value
+    Required bool
+}
+```
 
 #### Ecosystem implementations
 
-| Provider | Transport | How it works |
-|----------|-----------|-------------|
-| **stdin** | Terminal | Current behavior — prompt and read y/n (default) |
-| **Teams** | HTTP webhook + callback | POST adaptive card, block until webhook callback |
-| **Slack** | HTTP API + events | Post message with approve/reject buttons, listen for interaction |
-| **HTTP callback** | HTTP POST + poll | POST approval request to a URL, poll/callback for response |
-| **API store** | Database/queue | Write request to store, poll until responded; for async workflows |
-| **Signed URL** | HTTP | Send approver a time-limited HMAC-signed URL; click = approve |
+| Resolver | `from:` prefix | Implementation |
+|----------|---------------|----------------|
+| CLI flags | — | Built into `cmd/gert/` (not a resolver, always wins) |
+| Prompt | `prompt` | Built into `cmd/gert/` (reads stdin) |
+| Provider | `provider/<name>.<path>` | JSON-RPC stdio to external binary |
+| Environment | `env/<VAR_NAME>` | Reads environment variable |
+| File | `file/<path>` | Reads value from a file |
 
-#### Approval context flow
+#### Why this belongs in the kernel spec
 
-```
-Runbook YAML                    Engine                 ApprovalProvider           External System
-     │                            │                          │                         │
-     │  (step with critical risk) │                          │                         │
-     │                            │── resolve contract ──→   │                         │
-     │                            │── evaluate governance ─→ │                         │
-     │                            │   = require-approval     │                         │
-     │                            │                          │                         │
-     │                            │── RequestApproval({      │                         │
-     │                            │     runbook, step,       │                         │
-     │                            │     risk, contract,      │                         │
-     │                            │     inputs, extensions   │                         │
-     │                            │   }) ──────────────────→ │── render card ────────→ │
-     │                            │   (blocks)               │                         │
-     │                            │                          │                         │  user approves
-     │                            │                          │←── callback ────────────│
-     │                            │←── ApprovalResponse ─────│                         │
-     │                            │                          │                         │
-     │                            │── trace: governance_decision { approved, approver, signature }
-     │                            │── execute step
-```
+- **Determinism:** replay must produce the same results. If input resolution isn't specified, replay can't reproduce the original run.
+- **Trace completeness:** the trace must record where each input came from, or audit is incomplete.
+- **Validation:** `gert validate` should check that all `from:` bindings reference configured providers.
 
-#### Adaptive card example (Teams)
+---
 
-```
-┌──────────────────────────────────────────────────┐
-│ ⚠️  gert — Approval Required                     │
-│                                                   │
-│ Runbook:  service-health-check                    │
-│ Step:     delete_production_pod                    │
-│ Risk:     CRITICAL                                │
-│                                                   │
-│ Contract:                                         │
-│   side_effects: true                              │
-│   idempotent: false                               │
-│   writes: [production, kubernetes]                │
-│                                                   │
-│ Action:                                           │
-│   kubectl delete pod/web-api-7f8b9 -n production  │
-│                                                   │
-│ Requested by: oncall@company.com                  │
-│ Run ID:       run-2026-02-28-001                  │
-│ Team:         platform-eng (from x-team)          │
-│                                                   │
-│       [ ✅ Approve ]      [ ❌ Reject ]            │
-└──────────────────────────────────────────────────┘
-```
+## 6. Phase B → Track 1 remainder (Secrets, Extension Runner, Trace Integrity, Contract Violations)
 
-#### Cryptographic signing (optional, high-trust environments)
-
-For SOC2/FedRAMP scenarios, the approval response includes a signature:
-
-- Provider generates an HMAC-SHA256 over `run_id + step_id + approved + timestamp` using a shared secret
-- The trace records the signature alongside the decision
-- Audit tooling can verify signatures independently
-- The kernel does not verify — it records. Verification is an ecosystem concern.
+_Sections 9–12 below cover the remaining Track 1 items (secrets §9.1, contract violations §9.2, probes §9.3, trace integrity §12). Phase numbering retained for continuity._
 
 ---
 
@@ -424,21 +591,26 @@ Interactive runbook authoring, validation, execution, and testing inside VS Code
 ```
 VS Code Extension (TypeScript)
     │
-    │  MCP protocol (stdio) → cmd/gert-mcp
-    │  (same binary AI agents use)
+    │  Backend protocol (MCP or JSON-RPC, chosen per feature)
     │
     ▼
-gert-mcp (Go)
+gert-mcp / gert serve (Go)
     │
     └── kernel packages
 ```
 
 ### Backend
 
-**MCP-first.** The extension uses `gert-mcp` as its backend — the same binary AI agents use. This means:
-- One server implementation serves both VS Code and AI agents
-- VS Code gets agent-compatible by default
-- For VS Code-specific features (diagnostics push on file change, webview state sync), add a thin JSON-RPC layer alongside MCP — or use MCP notifications if the SDK supports them
+**MCP as one option, not the only one.** MCP is still evolving and may not map cleanly to all VS Code UX needs (streaming logs, partial results, file watching, cancellations, approval prompts).
+
+| Feature | Best backend | Why |
+|---------|-------------|-----|
+| Validate, exec, test | MCP (`gert-mcp`) | Standard operations — same as AI agents |
+| Streaming execution output | JSON-RPC (`gert serve`) | MCP notification support is SDK-dependent |
+| File watch + diagnostics push | JSON-RPC (`gert serve`) | Needs server-initiated messages |
+| Approval prompts in VS Code | JSON-RPC or MCP | Depends on which supports bidirectional prompts |
+
+Start with MCP for the standard operations. Add a thin JSON-RPC layer only for features that MCP can't handle after practical testing. Don't commit to MCP-only until the full lifecycle is proven.
 
 ### Reuse from old extension
 
@@ -996,35 +1168,50 @@ gert watch runbooks/health-check.yaml --interval 5m --config gert-watch.yaml
 
 ## 14. Summary — What the Kernel Needs
 
-| Interface / Change | Kernel package | Phase |
-|--------------------|---------------|-------|
-| `ApprovalProvider` | engine | B |
-| `InputProvider` | Pre-engine (CLI/MCP) | F |
-| `SecretRef` in schema | schema, validate | G |
-| Contract violation detection | engine, trace | G |
-| Probe mode | engine | G |
-| Auto-record `Recorder` | engine (wraps ToolExecutor) | H |
-| `prev_hash` in trace events | trace | J |
-| Trace signing | trace | J |
-| MCP transport executor | executor | After F |
+### Track 1 — Kernel changes (must do first)
 
-Phases C, D, E, H (diffing/promotion CLI), I, K are **ecosystem-only** — they import kernel packages but never modify them.
+| Change | Kernel package | Track |
+|--------|---------------|-------|
+| Contract taxonomy (`effects` field) | contract, schema, validate, governance | 1b |
+| `ApprovalProvider` (resumable, ticket-based) | engine, trace | 1c |
+| `InputResolver` interface + resolution semantics | schema, engine | 1d |
+| `SecretRef` in schema | schema, validate | 1e |
+| Extension step runner | engine, executor | 1f |
+| `prev_hash` in trace events | trace | 1g |
+| Trace signing + verification policy | trace, governance | 1g |
+| Contract violation detection | engine, trace | 1h |
+| Probe mode | engine | 1h |
+| `context.Context` on all provider interfaces | engine | 1b (prerequisite) |
 
-Phases B and "after F" modify kernel packages. All other phases are ecosystem-only — they import kernel packages but never modify them.
+### Track 2 — Ecosystem-only (no kernel changes)
+
+| Component | Packages | Track |
+|-----------|----------|-------|
+| TUI | `pkg/ecosystem/tui/`, `cmd/gert-tui/` | 2a |
+| MCP Server | `pkg/ecosystem/mcp/`, `cmd/gert-mcp/` | 2b |
+| VS Code Extension | `vscode/` | 2c |
+| Auto-record + scenario diffing | `pkg/ecosystem/replay/` | 2d |
+| Outcome intelligence | `pkg/ecosystem/outcomes/` | 2e |
+| Watch mode | `cmd/gert/` (subcommand) | 2f |
+| Approval providers (Teams, Slack, etc.) | `pkg/ecosystem/approval/` | 2a+ |
+| Input providers (PagerDuty, CMDB, etc.) | `pkg/ecosystem/providers/` | 2a+ |
 
 ### CLI naming
 
-- `cmd/gert-kernel/` (current) becomes the **minimal reference binary** — useful for testing and embedding.
-- `cmd/gert/` (new, Phase A) becomes the **standard distribution** — replaces the old broken `cmd/gert/` with one that imports only kernel packages.
-- The old `cmd/gert/` (pre-kernel) is deleted when `cmd/gert/` is rebuilt on the kernel.
+- `cmd/gert-kernel/` (current) → **minimal reference binary**, kept for testing and embedding
+- `cmd/gert/` (new, Track 1a) → **standard distribution**, replaces old broken `cmd/gert/`
+- Old `cmd/gert/` (pre-kernel) → deleted when new `cmd/gert/` is built
 
-### Approval timeout
+### Stability
 
-All `ApprovalProvider` implementations must respect a timeout. The `ApprovalRequest` should include a `Timeout time.Duration` field. If the provider doesn't respond within the timeout, the engine treats it as a rejection. Default: 5 minutes for interactive, 30 minutes for async (Teams/Slack).
+Kernel interfaces are **unstable** until Track 1 is complete. Expect breaking changes in:
+- Contract model (adding `effects`)
+- `ApprovalProvider` (moving to ticket-based)
+- `ToolExecutor` (adding `context.Context`)
+- Trace format (adding `prev_hash`)
+- Input resolution (new kernel-level semantics)
 
-### Context propagation
-
-All provider interfaces (`ApprovalProvider`, `InputProvider`, `ToolExecutor`) should accept `context.Context` as their first parameter for cancellation and timeout propagation. This is a kernel-level decision to make before Phase B.
+Track 2 work should not start on a component until the kernel interfaces it depends on are hardened.
 
 ---
 
