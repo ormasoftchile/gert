@@ -21,6 +21,11 @@ Phase C: TUI                           ← interactive experience (separate bina
 Phase D: MCP Server                    ← AI-agent-facing interface (separate binary)
 Phase E: VS Code Extension             ← richest human experience
 Phase F: Input Providers               ← pluggable input resolution
+Phase G: Secrets + Contract Hardening  ← secrets convention, contract violation detection, dry-run probes
+Phase H: Replay Excellence             ← auto-record, scenario diffing, golden promotion
+Phase I: Outcome Intelligence          ← aggregation CLI, outcome webhooks
+Phase J: Trace Integrity               ← hash chaining, trace signing
+Phase K: Watch Mode                    ← lightweight scheduling loop
 ```
 
 ### Distribution Model
@@ -570,13 +575,440 @@ Lower than Phases A–F. Can be added when AI agent integration demands it.
 
 ---
 
-## 9. Summary — What the Kernel Needs
+## 9. Phase G — Secrets + Contract Hardening
 
-| Interface | Kernel change | Phase |
-|-----------|---------------|-------|
-| `ApprovalProvider` | New interface in engine, replaces stdin prompt | B |
-| `InputProvider` | Pre-engine step in CLI/MCP server, not in engine | F |
-| MCP transport | New executor in `pkg/kernel/executor/` | After F |
+### 9.1 Secrets Convention
+
+#### Problem
+
+gert delegates secrets to the host platform, but there's no way to declare what secrets a tool or runbook needs. Users discover missing secrets at runtime via cryptic tool errors.
+
+#### Design: `secrets` block
+
+**On tool definitions:**
+
+```yaml
+apiVersion: tool/v0
+meta:
+  name: az-cli
+  binary: az
+secrets:
+  - env: AZURE_CLIENT_SECRET
+    description: "Azure service principal secret"
+    required: true
+  - env: AZURE_TENANT_ID
+    description: "Azure tenant ID"
+    required: true
+```
+
+**On runbooks:**
+
+```yaml
+meta:
+  name: deploy-service
+  secrets:
+    - env: DEPLOY_TOKEN
+      description: "Deploy token for production"
+    - env: SLACK_WEBHOOK
+      description: "Slack webhook for notifications"
+      required: false  # optional — notification skipped if missing
+```
+
+#### Behavior
+
+| Phase | What happens |
+|-------|-------------|
+| **Validation** | `gert validate` reports: "This runbook requires 3 secrets: AZURE_CLIENT_SECRET, AZURE_TENANT_ID, DEPLOY_TOKEN." Warning if any are missing from current environment. |
+| **Dry-run** | Reports which secrets are present/missing alongside contract and governance info. |
+| **Execution** | Missing required secret → step status `error` with clear message: "tool `az-cli` requires secret `AZURE_CLIENT_SECRET`". |
+| **Trace** | Secret **names** are recorded (for auditability). Secret **values** are never recorded. |
+| **Redaction** | Values of declared `secrets[].env` vars are automatically redacted in tool stdout/stderr captured in the trace. |
+
+#### Works with every secret store
+
+| Store | How it feeds gert |
+|-------|-------------------|
+| Kubernetes Secrets | Mounted as env vars in the pod |
+| Azure Key Vault | `az keyvault secret show` → env var in CI |
+| HashiCorp Vault | `vault kv get` → env var via wrapper |
+| GitHub Actions | `${{ secrets.X }}` → env var |
+| AWS Secrets Manager | `aws secretsmanager get-secret-value` → env var |
+| 1Password CLI | `op run -- gert exec runbook.yaml` |
+| `.env` file | `source .env && gert exec runbook.yaml` (dev only) |
+
+#### Schema changes
+
+- Add `Secrets []SecretRef` to `schema.ToolMeta` and `schema.Meta`
+- `SecretRef`: `{ Env string, Description string, Required bool }`
+- Validation rule D22: check secret env var presence (warning, not error — may run in different environment)
+
+### 9.2 Contract Violation Detection
+
+#### Problem
+
+Contracts are author-declared. An author can mark a destructive tool as `side_effects: false`. Nothing verifies this at runtime.
+
+#### Design
+
+After each tool step execution, the engine performs contract consistency checks:
+
+| Check | How | Violation |
+|-------|-----|-----------|
+| **Undeclared outputs** | Tool produces output keys not listed in `contract.outputs` | `contract_violation` trace event (warning) |
+| **Missing declared outputs** | Tool doesn't produce all keys listed in `contract.outputs` | `contract_violation` trace event (warning) |
+| **Deterministic check** | If `deterministic: true` and the step was previously executed with the same inputs (in a retry loop), compare outputs. Different outputs → violation. | `contract_violation` trace event (error) |
+
+The engine records violations in the trace but **does not halt** — the author may have legitimate reasons. Repeated violations across multiple runs signal a bad contract, surfaced via outcome aggregation (Phase I).
+
+#### Trace event
+
+```json
+{
+  "type": "contract_violation",
+  "data": {
+    "step_id": "check_health",
+    "kind": "undeclared_output",
+    "message": "tool produced output 'body' not declared in contract.outputs",
+    "severity": "warning"
+  }
+}
+```
+
+### 9.3 Dry-Run Contract Probes
+
+#### Problem
+
+Dry-run currently skips tool execution entirely. It can't verify that contracts are accurate because it never runs the tool.
+
+#### Design: `--mode probe`
+
+A new execution mode between dry-run and real:
+
+```bash
+gert exec runbook.yaml --mode probe --var hostname=test.example.com
+```
+
+**Behavior:**
+- Executes tool steps for **read-only tools only** (`side_effects: false`)
+- Skips tools with `side_effects: true` (reports contract + governance as dry-run does)
+- For executed tools: applies contract violation detection (§9.2)
+- For `deterministic: true` tools: runs twice with same inputs, verifies output consistency
+
+This lets you validate contracts against real infrastructure without causing side effects.
+
+---
+
+## 10. Phase H — Replay Excellence
+
+### 10.1 Auto-Record Mode
+
+#### Problem
+
+Scenario creation is manual. Users must write `scenario.yaml` files by hand after an incident. Most don't bother.
+
+#### Design
+
+Every `gert exec` can automatically record a replayable scenario:
+
+```bash
+# Record while executing
+gert exec runbook.yaml --var hostname=srv1 --record scenarios/srv1-incident/
+
+# Always record (via config or env var)
+GERT_AUTO_RECORD=true gert exec runbook.yaml --var hostname=srv1
+```
+
+**What gets recorded:**
+
+```
+scenarios/srv1-incident/
+├── scenario.yaml          # inputs + tool responses (captured from real execution)
+├── test.yaml              # auto-generated: expected_status + expected_outcome + must_reach (from actual run)
+└── trace.jsonl            # full trace for reference
+```
+
+The `scenario.yaml` is built during execution: every tool response is captured and written to the `tool_responses` section. Every manual step's evidence is captured to the `evidence` section. The `test.yaml` is generated from the actual outcome — it asserts that a replay produces the same result.
+
+**Engine change:** Add a `Recorder` that wraps `ToolExecutor`, intercepts responses, and writes the scenario file at run completion.
+
+### 10.2 Scenario Diffing
+
+#### Problem
+
+When a runbook changes, you don't know if historical incidents would produce different outcomes.
+
+#### Design
+
+```bash
+gert diff runbook.yaml
+```
+
+Runs all recorded scenarios against the current runbook and reports outcome differences:
+
+```
+  service-health-check
+
+  Scenario: srv1-incident-2026-02-15
+    Before: resolved (service_restarted)
+    After:  resolved (service_restarted)     ✓ same
+
+  Scenario: srv2-incident-2026-02-20
+    Before: escalated (unknown_failure)
+    After:  resolved (dns_fixed)             ⚠ outcome changed!
+    Steps changed:
+      + dns_repair (newly reached)
+      - investigate (no longer reached)
+
+  1 unchanged, 1 changed
+```
+
+**Implementation:** Re-run each scenario with the current runbook in replay mode. Compare the `RunResult` (outcome category, code, visited steps, outputs) against the recorded `test.yaml`. Report differences.
+
+### 10.3 Golden Scenario Promotion
+
+#### Problem
+
+Auto-recorded scenarios accumulate. Not all are worth keeping as permanent tests. Teams need a way to curate.
+
+#### Design
+
+```bash
+# Promote a recorded run to a named golden scenario
+gert scenario promote scenarios/srv1-incident/ --name healthy-restart
+
+# List golden scenarios
+gert scenario list runbook.yaml
+
+# Demote (remove golden flag, scenario stays as archive)
+gert scenario demote healthy-restart
+```
+
+**Mechanics:**
+- "Golden" is a marker in `test.yaml`: `golden: true`
+- `gert test` runs **only golden scenarios** by default
+- `gert test --all` runs everything (golden + archived)
+- `gert diff` runs only golden scenarios
+- CI pipeline runs `gert test` → only curated, meaningful tests
+
+---
+
+## 11. Phase I — Outcome Intelligence
+
+### 11.1 Outcome Aggregation CLI
+
+#### Problem
+
+Structured outcomes exist per-run, but there's no way to see trends across runs.
+
+#### Design
+
+```bash
+# Summary of recent runs
+gert outcomes --since 7d --runbook service-health-check
+
+  service-health-check (23 runs, last 7 days)
+
+  resolved:    17 (74%)  ████████████████░░░░░░
+  escalated:    3 (13%)  ███░░░░░░░░░░░░░░░░░░
+  no_action:    2 (9%)   ██░░░░░░░░░░░░░░░░░░░
+  needs_rca:    1 (4%)   █░░░░░░░░░░░░░░░░░░░░
+
+  Top outcome codes:
+    service_restarted   12
+    dns_fixed            5
+    unknown_failure      3
+
+# JSON output for dashboards
+gert outcomes --since 30d --json
+```
+
+**Data source:** Reads `run_complete` and `outcome_resolved` events from trace files. Scans a configured trace directory.
+
+**Configuration:**
+
+```yaml
+# gert-config.yaml or env var
+traces:
+  dir: /var/log/gert/traces    # or ~/.gert/traces
+```
+
+### 11.2 Outcome Webhooks
+
+#### Problem
+
+gert runs finish silently. Teams want to be notified of outcomes, especially escalations.
+
+#### Design
+
+```yaml
+# In runbook meta or gert-config.yaml
+meta:
+  on_outcome:
+    escalated:
+      webhook: https://hooks.slack.com/services/xxx
+      pagerduty_severity: critical
+    needs_rca:
+      webhook: https://hooks.slack.com/services/xxx
+    resolved:
+      webhook: https://hooks.slack.com/services/xxx  # optional — log successes too
+```
+
+**Implementation:**
+- After `run_complete`, check if the outcome category has a configured webhook
+- POST a JSON payload with: runbook name, outcome (category, code, meta), duration, run ID, trace path
+- Fire-and-forget — webhook failure doesn't affect the run result
+- Webhook payload includes enough context for Slack formatting or PagerDuty event creation
+
+**Payload example:**
+
+```json
+{
+  "runbook": "service-health-check",
+  "run_id": "run-2026-02-28-001",
+  "outcome": {
+    "category": "escalated",
+    "code": "unknown_failure",
+    "meta": { "status_code": "418" }
+  },
+  "duration": "4.2s",
+  "trace": "/var/log/gert/traces/run-2026-02-28-001.jsonl",
+  "timestamp": "2026-02-28T14:30:00Z"
+}
+```
+
+---
+
+## 12. Phase J — Trace Integrity
+
+### 12.1 Hash Chaining
+
+#### Problem
+
+The trace is append-only during a run, but nothing prevents post-hoc modification. For compliance (SOC2, FedRAMP, ISO 27001), auditors need tamper evidence.
+
+#### Design
+
+Each trace event includes a `prev_hash` field — the SHA-256 hash of the previous event's JSON:
+
+```json
+{"type":"run_start","timestamp":"...","run_id":"r1","data":{...},"prev_hash":"0000000000000000"}
+{"type":"step_start","timestamp":"...","run_id":"r1","data":{...},"prev_hash":"a1b2c3d4e5f6..."}
+{"type":"step_complete","timestamp":"...","run_id":"r1","data":{...},"prev_hash":"f6e5d4c3b2a1..."}
+```
+
+- First event: `prev_hash` is zero (genesis)
+- Each subsequent event: `prev_hash = SHA256(previous_event_json)`
+- Modifying any event breaks the chain for all subsequent events
+- Verification: `gert trace verify run.jsonl` — walks the chain, reports breaks
+
+**Engine change:** `trace.Writer.Emit()` computes and includes `prev_hash` before writing.
+
+### 12.2 Trace Signing
+
+#### Problem
+
+Hash chaining proves internal consistency, but doesn't prove *who* produced the trace. An attacker could rewrite the entire chain.
+
+#### Design
+
+At run completion, the engine signs the final chain hash:
+
+```bash
+# Signing key from environment (convention, like secrets)
+GERT_TRACE_SIGNING_KEY=base64-encoded-hmac-key gert exec runbook.yaml --trace run.jsonl
+```
+
+The `run_complete` event includes:
+
+```json
+{
+  "type": "run_complete",
+  "data": {
+    "status": "completed",
+    "chain_hash": "final-sha256-of-entire-chain",
+    "signature": "hmac-sha256-of-chain-hash-with-signing-key",
+    "signing_key_id": "prod-2026"
+  }
+}
+```
+
+**Verification:**
+
+```bash
+gert trace verify run.jsonl --key-id prod-2026
+✓ Chain integrity: 47 events, no breaks
+✓ Signature valid: signed by key "prod-2026"
+```
+
+- The kernel computes and records the signature
+- The kernel does NOT store or manage keys — keys are env vars (same convention as secrets)
+- `signing_key_id` is a label, not the key — for key rotation
+- Verification tooling can run independently (auditors, compliance tools)
+
+---
+
+## 13. Phase K — Watch Mode
+
+### Problem
+
+gert has no scheduling, by design. But operators often want a simple "run this every 5 minutes" loop for monitoring runbooks, without setting up cron or Kubernetes CronJobs.
+
+### Design
+
+```bash
+# Run a health check every 5 minutes
+gert watch runbooks/health-check.yaml --interval 5m --var hostname=srv1
+
+# Stop on first failure
+gert watch runbooks/health-check.yaml --interval 5m --stop-on escalated,needs_rca
+
+# With outcome webhook
+gert watch runbooks/health-check.yaml --interval 5m --config gert-watch.yaml
+```
+
+**Behavior:**
+- Runs `gert exec` in a loop with the specified interval
+- Each run is independent — fresh engine, fresh variables
+- Trace files written per-run: `traces/health-check-2026-02-28T14:30:00.jsonl`
+- Console output: one summary line per run
+
+```
+14:30:00  ✓ resolved (service_healthy)   2.1s
+14:35:00  ✓ resolved (service_healthy)   1.8s
+14:40:00  ✗ escalated (unknown_failure)  4.3s  ← stopping (--stop-on escalated)
+```
+
+- `--stop-on <categories>`: stop the loop when an outcome matches
+- Outcome webhooks fire per-run if configured
+- Ctrl+C gracefully stops after the current run completes
+
+**What this is NOT:**
+- Not a daemon/service — it's a foreground loop
+- Not a replacement for cron/K8s CronJobs — those are better for production scheduling
+- Not highly available — single process, single machine
+
+**What this IS:**
+- A convenience for development and light monitoring
+- A way to soak-test a runbook against real infrastructure
+- A quick setup for "run this health check in a `tmux` session"
+
+---
+
+## 14. Summary — What the Kernel Needs
+
+| Interface / Change | Kernel package | Phase |
+|--------------------|---------------|-------|
+| `ApprovalProvider` | engine | B |
+| `InputProvider` | Pre-engine (CLI/MCP) | F |
+| `SecretRef` in schema | schema, validate | G |
+| Contract violation detection | engine, trace | G |
+| Probe mode | engine | G |
+| Auto-record `Recorder` | engine (wraps ToolExecutor) | H |
+| `prev_hash` in trace events | trace | J |
+| Trace signing | trace | J |
+| MCP transport executor | executor | After F |
+
+Phases C, D, E, H (diffing/promotion CLI), I, K are **ecosystem-only** — they import kernel packages but never modify them.
 
 Phases B and "after F" modify kernel packages. All other phases are ecosystem-only — they import kernel packages but never modify them.
 
