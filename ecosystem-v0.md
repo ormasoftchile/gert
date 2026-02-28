@@ -1415,8 +1415,210 @@ These are intentionally separate today — each has different method sets and li
 - No web UI before adoption
 - No governance DSL v2 before real usage
 - No plugin marketplace before pack format stabilizes
+- No MAD-specific step types (the primitives compose into MAD patterns naturally)
 
 Less design, more usage is the correct next move.
+
+---
+
+## 15. MAD-Ready Patterns (Multi-Agent Debate)
+
+gert does not implement MAD as a feature. The kernel primitives — `for_each` with keyed outputs, `repeat`, scoped state, visibility intent, principal attribution, extension runners — compose into MAD patterns naturally. This section documents conventions, not new kernel features.
+
+### 15.1 Reducer / Judge Extension Runner Convention
+
+A canonical pattern for aggregating parallel outputs into a decision.
+
+**Runner naming convention:**
+- `gert-ext-reduce-*` — aggregation runners (merge, vote, score)
+- `gert-ext-judge-*` — evaluation runners (pick winner, assess quality)
+
+**Contract convention:**
+
+```yaml
+# judge.tool.yaml or as extension inline contract
+contract:
+  effects: [network]              # if calling an LLM for judgment
+  writes: []
+  deterministic: false
+  inputs:
+    items:
+      type: object                # map of keyed outputs from fan-out
+      required: true
+    criteria:
+      type: string
+      required: false
+  outputs:
+    decision:
+      type: string                # "agent_a" | "consensus" | "no_winner"
+    scores:
+      type: object                # { agent_a: 0.8, agent_b: 0.6 }
+    winner:
+      type: string
+    summary:
+      type: string
+```
+
+A judge runner receives all agent outputs as a map, evaluates them, and produces a structured decision. The kernel governs the judge step like any other — its contract declares effects, governance evaluates risk.
+
+### 15.2 LLM Tool Convention
+
+LLM calls are governed like any other tool. Recommended `llm.tool.yaml`:
+
+```yaml
+apiVersion: tool/v0
+meta:
+  name: llm
+  description: Large language model inference
+  transport: stdio
+  binary: gert-llm-provider       # ecosystem binary
+  platform: [linux, darwin, windows]
+contract:
+  effects: [network]              # LLM APIs are network calls
+  writes: []                      # LLMs don't mutate infrastructure
+  deterministic: false            # same prompt → different outputs
+  idempotent: true                # safe to re-call
+  inputs:
+    prompt:
+      type: string
+      required: true
+    model:
+      type: string
+      default: "claude-4-opus"
+    temperature:
+      type: float
+      default: 0.7
+  outputs:
+    response:
+      type: string
+    usage:
+      type: object
+secrets:
+  - env: ANTHROPIC_API_KEY
+    description: "API key for Anthropic"
+    required: true
+actions:
+  complete:
+    argv: ["gert-llm-provider", "complete", "--model", "{{ .model }}", "--temp", "{{ .temperature }}"]
+    extract:
+      response: { from: stdout }
+```
+
+**Key governance point:** LLM calls are `effects: [network]`, `deterministic: false`. A governance rule like `effects: [network], deterministic: false → require-approval` would gate LLM usage — same as any other risky tool.
+
+### 15.3 MAD-Ready Runbook Skeleton
+
+Proof that the kernel primitives compose into a multi-agent debate without any MAD-specific features:
+
+```yaml
+apiVersion: kernel/v0
+
+meta:
+  name: multi-agent-review
+  description: Three agents debate a question, judge picks winner
+  inputs:
+    question: { type: string, required: true }
+  constants:
+    agents:
+      - { id: advocate, role: "argue in favor" }
+      - { id: skeptic, role: "argue against" }
+      - { id: analyst, role: "provide data-driven analysis" }
+
+tools:
+  - llm
+
+steps:
+  # Round 0: Blind fan-out — each agent answers independently
+  - id: initial_responses
+    type: tool
+    tool: llm
+    action: complete
+    scope: "round/0"
+    for_each:
+      as: agent
+      over: "{{ .agents }}"
+      key: "{{ .agent.id }}"
+      parallel: true
+    visibility:
+      allow: ["question"]
+      deny: ["scope.round/0.*"]        # agents can't see each other
+    inputs:
+      prompt: "{{ .agent.role }}: {{ .question }}"
+    export: ["response"]
+
+  # Round 1: Critique — each agent sees all round 0 responses
+  - id: critiques
+    type: tool
+    tool: llm
+    action: complete
+    scope: "round/1"
+    for_each:
+      as: agent
+      over: "{{ .agents }}"
+      key: "{{ .agent.id }}"
+      parallel: true
+    visibility:
+      allow: ["question", "scope.round/0.*"]  # can see all round 0
+      deny: ["scope.round/1.*"]               # can't see other critiques
+    inputs:
+      prompt: |
+        You are {{ .agent.id }} ({{ .agent.role }}).
+        Review these responses and critique:
+        {{ .scope.round/0 }}
+        Your critique:
+    export: ["response"]
+
+  # Judge: Evaluate all responses and critiques
+  - id: judge
+    type: extension
+    extension: gert-ext-judge-llm
+    contract:
+      effects: [network]
+      writes: []
+      deterministic: false
+      inputs:
+        items: { type: object, required: true }
+      outputs:
+        decision: { type: string }
+        winner: { type: string }
+        summary: { type: string }
+    inputs:
+      items:
+        round_0: "{{ .scope.round/0 }}"
+        round_1: "{{ .scope.round/1 }}"
+    export: ["decision", "winner", "summary"]
+
+  # Outcome
+  - type: end
+    outcome:
+      category: resolved
+      code: debate_complete
+      meta:
+        winner: "{{ .winner }}"
+        decision: "{{ .decision }}"
+        summary: "{{ .summary }}"
+```
+
+**What this demonstrates:**
+- `for_each` with `key` for named fan-out (agents identified by ID)
+- `scope` for round-based isolation (round/0, round/1)
+- `visibility` for information control (blind in round 0, informed in round 1)
+- Extension runner as judge (contract-governed like any step)
+- `export` for promoting decisions to global scope
+- `principal` attribution in trace (each agent step records its agent ID)
+- No MAD-specific kernel features — only existing primitives composed
+
+**Not shown (future via `repeat`):**
+```yaml
+  # Multi-round debate with convergence
+  - id: debate
+    type: repeat
+    repeat:
+      max: 3
+      until: '{{ eq .decision "consensus" }}'
+    steps:
+      # ... fan-out + judge per round
+```
 
 ---
 

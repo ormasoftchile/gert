@@ -271,6 +271,28 @@ When a step with `for_each` produces outputs, the kernel collects them into an *
 - Downstream steps reference the accumulated list via the step ID.
 - Static analysis verifies that post-loop references use the list form, not the scalar form.
 
+### `for_each` with keyed outputs
+
+When iterations need to be referenced by a meaningful key (not just index), use the `key` field:
+
+```yaml
+- id: agent_responses
+  type: extension
+  extension: llm-agent
+  for_each:
+    as: agent
+    over: "{{ .agents }}"
+    key: "{{ .agent.id }}"          # key each output by agent ID
+    parallel: true
+  inputs:
+    prompt: "{{ .question }}"
+```
+
+- With `key`: outputs are stored as a **map** under the step ID: `{{ .agent_responses.skeptic.answer }}`
+- Without `key`: outputs are stored as a **list** (existing behavior): `{{ index .agent_responses 0 "answer" }}`
+- Key collisions are a **runtime error** — each key must be unique across iterations
+- The engine guarantees **deterministic key ordering** in trace and replay (insertion order = declaration order)
+
 ### `for_each` + `parallel: true` + contract interaction
 
 When the kernel expands `for_each parallel: true`, each iteration becomes a parallel branch with the **same contract** (inherited from the step's tool). Since every branch has identical `reads`/`writes`, they will always conflict under the standard set-intersection rule.
@@ -280,6 +302,46 @@ When the kernel expands `for_each parallel: true`, each iteration becomes a para
 - Cross-iteration data sharing is impossible (no shared write target within the loop).
 
 If the author knows iterations actually contend on a shared resource, they should use sequential mode (`parallel: false` or omit the flag).
+
+### 6.5 `repeat` — Bounded iteration block
+
+Execute a block of steps multiple times until a condition is met or max iterations reached.
+
+```yaml
+- id: debate
+  type: repeat
+  repeat:
+    max: 3
+    until: '{{ eq .consensus "reached" }}'
+  steps:
+    - id: argue
+      type: extension
+      extension: llm-agent
+      scope: "round/{{ .repeat.index }}"
+      # ...
+    - id: evaluate
+      type: extension
+      extension: judge
+      export: ["consensus"]
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `repeat.max` | yes | Maximum iterations (guarantees termination) |
+| `repeat.until` | no | Expression evaluated after each iteration; true = stop |
+| `steps` | yes | Steps to execute per iteration |
+
+**Semantics:**
+
+- `{{ .repeat.index }}` — zero-based iteration counter, available inside the block
+- `{{ .repeat.round }}` — alias for index (readability for debate patterns)
+- The `until` expression is evaluated after each iteration with the current global state
+- If `until` is omitted, the block runs exactly `max` times
+- Each iteration is a fresh scope: `scope.repeat/<step_id>/<index>`
+- Steps inside the block can `export` variables to make them visible to subsequent iterations and the `until` expression
+- Trace records `repeat_start` (with max, step_id) and `repeat_iteration` (with index) events deterministically — replay is stable
+
+**What this replaces:** `repeat` is a structured alternative to backward `next` with `max` for multi-step loops. Use `next` for single-step retry; use `repeat` for multi-step iteration patterns (debate rounds, convergence loops).
 
 ---
 
@@ -375,6 +437,75 @@ steps:
 - **Parallel merge.** Two parallel branches that both declare an output with the same name → **validation error** (see §8).
 - **Extraction plumbing lives in tool definitions**, not in the kernel. A tool's contract says "I produce `status_code: int`." The tool definition's `extract` block describes how to map stdout to that output. The kernel sees only the contract.
 - **Parallel merge.** Two parallel branches that both declare an output with the same name → **validation error**. The kernel rejects ambiguous merges statically. Authors must use distinct output names or restructure branches. No silent precedence rules.
+
+### Variable Namespaces
+
+Variables live in three namespaces:
+
+| Namespace | Syntax | Lifetime | Use case |
+|-----------|--------|----------|----------|
+| **global** | `{{ .name }}` | Entire run | Runbook inputs, constants, promoted outputs |
+| **step** | `{{ .step.<step_id>.name }}` | After producing step completes | Step outputs (already supported via step ID) |
+| **scope** | `{{ .scope.<name>.var }}` | Within the scope block | Round-based iteration, debate phases, isolated contexts |
+
+#### Scope blocks
+
+A step may declare a `scope` — an explicit namespace for grouping related state:
+
+```yaml
+- id: round_0_agent_a
+  type: extension
+  extension: llm-agent
+  scope: "round/0"
+  inputs:
+    prompt: "{{ .question }}"
+```
+
+- Variables written by a step with `scope: "round/0"` are stored under `scope.round/0.*`
+- Scope vars persist within the scope but are **not visible to other scopes** unless exported
+- Steps in the same scope can read each other's outputs via `{{ .scope.round/0.var }}`
+
+#### Export
+
+A step may export scope-local or step-local variables to the global namespace:
+
+```yaml
+- id: summarize
+  type: extension
+  extension: reducer
+  scope: "round/1"
+  export: ["decision", "scores"]
+```
+
+- `export: [<var_names>]` promotes the listed variables from the step/scope namespace → global
+- Exported vars become available to all subsequent steps as `{{ .decision }}`, `{{ .scores }}`
+- Without `export`, scope/step vars die with their scope
+
+#### Merge rules
+
+- **Step-local:** dies at step end unless referenced by step ID (`{{ .step_id.output }}`) or exported
+- **Scope-local:** persists within scope, invisible to other scopes, dies at scope end unless exported
+- **Global:** persists for entire run
+- **Parallel safety:** parallel steps must not write to the same global key unless a subsequent reducer step merges. Two parallel branches writing the same global key → validation error (unchanged).
+
+### Visibility Intent
+
+Steps may declare visibility constraints on their inputs — which variables they are **allowed** to see:
+
+```yaml
+- id: blind_review
+  type: extension
+  extension: llm-agent
+  visibility:
+    allow: ["question", "scope.round/0.*"]
+    deny: ["scope.round/0.agent_b.*"]
+```
+
+- `visibility.allow` — glob patterns of variable paths this step can access (whitelist)
+- `visibility.deny` — glob patterns explicitly hidden from this step (blacklist, applied after allow)
+- **Kernel behavior (v0):** recorded in trace as `visibility_applied` event. The kernel passes visibility metadata to executors/resolvers. **Enforcement is optional in v0** — hosts and extension runners may enforce it, but the kernel does not filter variables. Future versions may enforce at the engine level.
+- **Trace event:** `{ type: "visibility_applied", data: { step_id, allow, deny } }`
+- Purpose: enables debate patterns where agents must not see each other's outputs until a specific phase.
 
 ---
 
@@ -557,6 +688,40 @@ steps:
 
 Append-only JSONL. Synced at every event boundary.
 
+### Principal Attribution
+
+Every trace event MAY include a `principal` field, and MUST include it when the action is attributable to a non-system actor:
+
+```json
+{
+  "principal": {
+    "kind": "agent",
+    "id": "agent-skeptic-01",
+    "role": "skeptic",
+    "model": "claude-4-opus"
+  }
+}
+```
+
+| Field | Required | Values | Description |
+|-------|----------|--------|-------------|
+| `kind` | yes | `system`, `human`, `agent` | Who performed the action |
+| `id` | yes | stable string | Unique identifier (email, agent ID, "kernel") |
+| `role` | no | free-form | Functional role (e.g., "skeptic", "judge", "oncall") |
+| `model` | no | free-form | For agents: model identifier (e.g., "claude-4-opus") |
+
+**Where principal appears:**
+
+| Event | Principal |
+|-------|-----------|
+| `step_start` / `step_complete` (tool) | The actor who triggered the step (system for automated, agent for AI-driven) |
+| `step_start` / `step_complete` (extension) | The extension runner's declared principal |
+| `step_complete` (manual) | The human who provided evidence |
+| `governance_decision` | System (kernel governance engine) |
+| `approval_submitted` / `approval_resolved` | The approver (human or agent) |
+
+If no principal is specified, the default is `{ kind: "system", id: "kernel" }`.
+
 ### Event types
 
 | Event | When emitted | Key fields |
@@ -573,6 +738,10 @@ Append-only JSONL. Synced at every event boundary.
 | `redaction_applied` | Output sanitized | step_id, pattern_count |
 | `for_each_start` | Iteration begins | over, item_count, parallel |
 | `for_each_item` | Per-item iteration | index, value |
+| `repeat_start` | Repeat block begins | step_id, max |
+| `repeat_iteration` | Each iteration | step_id, index, until_result |
+| `visibility_applied` | Visibility constraints recorded | step_id, allow, deny |
+| `scope_export` | Variables exported from scope to global | step_id, scope, exported_vars |
 
 ### Purpose
 
