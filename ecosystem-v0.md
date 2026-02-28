@@ -143,11 +143,11 @@ Build 3–5 operational runbooks that exercise the full kernel surface. Find bug
 
 | Tool | Binary | Platform | Contract highlights |
 |------|--------|----------|---------------------|
-| `curl.tool.yaml` | curl | all | `side_effects: false`, `reads: [network]` |
-| `kubectl.tool.yaml` | kubectl | all | Multiple actions: `get` (read-only), `delete` (side_effects, writes: [kubernetes]), `apply` (idempotent) |
-| `az.tool.yaml` | az | all | Azure CLI actions: `vm list`, `vm restart` |
-| `ping.tool.yaml` | ping | all | `side_effects: false`, `deterministic: false` |
-| `jq.tool.yaml` | jq | all | `side_effects: false`, `deterministic: true` — JSON transformation |
+| `curl.tool.yaml` | curl | all | `effects: [network]`, `writes: []`, `deterministic: false` |
+| `kubectl.tool.yaml` | kubectl | all | Multiple actions: `get` (`effects: [kubernetes]`, no writes), `delete` (`effects: [kubernetes]`, `writes: [pods]`), `apply` (idempotent) |
+| `az.tool.yaml` | az | all | Azure CLI actions: `vm list` (`effects: [azure]`), `vm restart` (`effects: [azure]`, `writes: [vm]`) |
+| `ping.tool.yaml` | ping | all | `effects: [network]`, `deterministic: false` |
+| `jq.tool.yaml` | jq | all | `effects: []`, `deterministic: true` — pure JSON transformation |
 
 ### Runbooks to build
 
@@ -304,18 +304,22 @@ type ApprovalResponse struct {
 ```
 Engine                        ApprovalProvider            External System
   │                                │                           │
-  │── Submit(req) ───────────────→ │── POST card ────────────→ │
+  │── Submit(req) ───────────────→ │── send notification ─────→ │
   │←── ApprovalTicket{pending} ───│                           │
   │                                │                           │
-  │── trace: approval_pending { ticket_id, step_id }          │
-  │── persist state snapshot                                   │
+  │── trace: approval_submitted { ticket_id, step_id }       │
+  │── persist state snapshot                                 │
   │                                │                           │
-  │── Wait(ctx, ticket) ─────────→ │                           │
-  │   (blocks with ctx timeout)    │                           │  user approves
+  │  Mode A: engine waits (with ctx timeout)                │
+  │  Mode B: engine exits, gert resume --ticket <id> later  │
+  │                                │                           │
+  │                                │                           │  user approves
   │                                │←── callback ──────────────│
+  │  (resumed via Wait or gert resume)                      │
   │←── ApprovalResponse ──────────│                           │
   │                                │                           │
-  │── trace: governance_decision { approved, approver, ticket_id }
+  │── verify signature (if require_verified_approval=true)   │
+  │── trace: approval_resolved { approved, approver, verified }
   │── execute step
 ```
 
@@ -726,7 +730,8 @@ contract:
     query: { type: string, required: true }
   outputs:
     results: { type: string }
-  side_effects: false
+  effects: [network]
+  writes: []
   reads: [search_index]
 actions:
   search:
