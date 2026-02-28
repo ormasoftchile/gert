@@ -17,23 +17,93 @@ The kernel executes runbooks. The ecosystem makes runbooks usable by humans, AI 
 ```
 Phase A: Real Runbooks + Tools         ← validate the kernel works
 Phase B: Approval Provider Interface   ← kernel extension for governance UX
-Phase C: TUI                           ← first interactive experience
-Phase D: MCP Server                    ← AI-agent-facing interface
+Phase C: TUI                           ← interactive experience (separate binary)
+Phase D: MCP Server                    ← AI-agent-facing interface (separate binary)
 Phase E: VS Code Extension             ← richest human experience
 Phase F: Input Providers               ← pluggable input resolution
 ```
+
+### Distribution Model
+
+Three separate binaries from one repo. Core CLI stays lean and scriptable.
+
+```
+cmd/
+  gert/            Core CLI (validate, exec, test, schema)
+                   Lean, no TUI deps. Designed for scripts, CI, pipes.
+  gert-tui/        Terminal UI (imports kernel + Bubble Tea)
+                   For operators during incidents. Optional install.
+  gert-mcp/        MCP server for AI agents
+                   Exposes kernel operations as MCP tools. Optional install.
+```
+
+**Install what you need:**
+
+```bash
+go install github.com/ormasoftchile/gert/cmd/gert@latest       # everyone
+go install github.com/ormasoftchile/gert/cmd/gert-tui@latest    # operators
+go install github.com/ormasoftchile/gert/cmd/gert-mcp@latest    # AI agents
+```
+
+**Why separate binaries:**
+
+- Core CLI stays scriptable — pipes, `--json`, `jq`, CI-friendly, no terminal dependencies
+- TUI pulls Bubble Tea + lipgloss + glamour — unnecessary for automation
+- MCP server has its own SDK dependency — unnecessary for humans
+- Follows industry pattern: `kubectl` (core) + `k9s` (TUI), `git` (core) + `lazygit` (TUI), `docker` (core) + `lazydocker` (TUI)
+- Same kernel underneath, different front-ends
+
+### Package Layout
+
+```
+pkg/kernel/                  ← library (Phase 1-5, stable)
+  contract/
+  schema/
+  validate/
+  engine/
+  eval/
+  executor/
+  governance/
+  trace/
+  replay/
+  testing/
+
+pkg/ecosystem/               ← ecosystem packages (never imported by kernel)
+  tui/                       ← Bubble Tea wrapper (Phase C)
+  mcp/                       ← MCP server handlers (Phase D)
+  serve/                     ← JSON-RPC server for VS Code (Phase E)
+  approval/
+    stdin/                   ← default terminal approval (current)
+    teams/                   ← Teams adaptive cards
+    slack/                   ← Slack
+    http/                    ← HTTP callback
+  providers/
+    prompt/                  ← stdin prompt (default)
+    pagerduty/               ← PagerDuty
+    servicenow/              ← ServiceNow
+
+cmd/
+  gert/                      ← core CLI: validate, exec, test, schema
+  gert-tui/                  ← TUI binary
+  gert-mcp/                  ← MCP server binary
+
+vscode/                      ← VS Code extension (TypeScript)
+```
+
+**Dependency rule:** `pkg/kernel/` never imports `pkg/ecosystem/`. The arrow is always `ecosystem → kernel`.
 
 ### Component Map
 
 | Component | Package / Location | Imports from kernel | New interfaces |
 |-----------|--------------------|---------------------|----------------|
+| Core CLI | `cmd/gert/` | engine, schema, validate, trace, replay, testing | — |
 | Tools | `tools/*.tool.yaml` | — | — |
 | Runbooks | `runbooks/*.yaml` | — | — |
-| Approval Provider | `pkg/kernel/engine/` (interface) + ecosystem impls | engine, trace | `ApprovalProvider` |
-| TUI | `pkg/tui/` (new) | engine, schema, trace | — |
-| MCP Server | `pkg/mcp/` (new) | engine, schema, validate | — |
-| VS Code Extension | `vscode/` (rewrite) | via JSON-RPC to MCP/serve | — |
-| Input Providers | `pkg/providers/` (new) | schema | `InputProvider` |
+| Approval Provider | `pkg/kernel/engine/` (interface) + `pkg/ecosystem/approval/` | engine, trace | `ApprovalProvider` |
+| TUI | `cmd/gert-tui/` + `pkg/ecosystem/tui/` | engine, schema, trace | — |
+| MCP Server | `cmd/gert-mcp/` + `pkg/ecosystem/mcp/` | engine, schema, validate | — |
+| VS Code Extension | `vscode/` (rewrite) | via MCP or JSON-RPC | — |
+| Input Providers | `pkg/ecosystem/providers/` | schema | `InputProvider` |
 
 ---
 
@@ -196,14 +266,24 @@ For SOC2/FedRAMP scenarios, the approval response includes a signature:
 
 ### Goal
 
-A Bubble Tea interface wrapping the kernel engine for interactive step-by-step execution.
+A Bubble Tea interface wrapping the kernel engine for interactive step-by-step execution. **Separate binary** (`gert-tui`), not bundled with the core CLI.
+
+### Why separate
+
+The core `gert` CLI is designed for scripts, CI, and pipes. The TUI is for operators sitting at a terminal during an incident. Different audience, different dependencies:
+
+- `gert` — no Bubble Tea, no lipgloss, no terminal UI deps. ~5MB binary.
+- `gert-tui` — imports Bubble Tea + lipgloss + glamour. ~12MB binary.
+- Follows `kubectl`/`k9s`, `git`/`lazygit`, `docker`/`lazydocker` pattern.
 
 ### Architecture
 
 ```
-User Input ──→ TUI App ──→ Engine (kernel)
-                  │              │
-                  │←── events ───│ (step_start, step_complete, branch_enter, ...)
+                  cmd/gert-tui/main.go
+                        │
+User Input ──→ pkg/ecosystem/tui/ ──→ pkg/kernel/engine/
+                  │                          │
+                  │←── events ───────────────│ (step_start, step_complete, ...)
                   │
                   ├── Step List Panel (left)
                   ├── Output Panel (center/right)
@@ -287,18 +367,19 @@ AI Agent (Claude, GPT, etc.)
     │  MCP protocol (stdio or HTTP)
     │
     ▼
-MCP Server (gert)
-    │
-    ├── validate handler  → pkg/kernel/validate
-    ├── exec handler      → pkg/kernel/engine
-    ├── test handler      → pkg/kernel/testing
-    └── schema handler    → pkg/kernel/schema
+cmd/gert-mcp/ ──→ pkg/ecosystem/mcp/
+                        │
+                        ├── validate handler  → pkg/kernel/validate
+                        ├── exec handler      → pkg/kernel/engine
+                        ├── test handler      → pkg/kernel/testing
+                        └── schema handler    → pkg/kernel/schema
 ```
 
 ### Implementation
 
 - Use the Go MCP SDK (`github.com/mark3labs/mcp-go` or similar)
-- `cmd/gert-mcp/main.go` — standalone MCP server binary
+- `cmd/gert-mcp/main.go` — **standalone MCP server binary**, separate from core CLI
+- Follows same pattern: `gert` (core CLI), `gert-tui` (humans), `gert-mcp` (AI agents)
 - Each handler imports kernel packages directly — no intermediate layer
 - Exec handler uses a custom `ToolExecutor` that records output for the MCP response
 - Approval requests routed via `ApprovalProvider` — could prompt the AI agent for a decision or delegate to an external system
@@ -338,21 +419,21 @@ Interactive runbook authoring, validation, execution, and testing inside VS Code
 ```
 VS Code Extension (TypeScript)
     │
-    │  JSON-RPC or MCP (stdio)
+    │  MCP protocol (stdio) → cmd/gert-mcp
+    │  (same binary AI agents use)
     │
     ▼
-gert serve / gert-mcp (Go)
+gert-mcp (Go)
     │
     └── kernel packages
 ```
 
-### Backend options
+### Backend
 
-1. **MCP-first:** Extension uses MCP protocol from Phase D. Agent-compatible by default.
-2. **JSON-RPC server:** Dedicated `gert serve` command (like old `pkg/serve/`). Richer protocol, VS Code-specific features.
-3. **Hybrid:** MCP for standard operations, JSON-RPC for VS Code-specific features (webview state sync, diagnostic streaming).
-
-Recommendation: **MCP-first, with a thin JSON-RPC layer for VS Code-specific features** (diagnostics pushed on file change, webview state). This avoids maintaining two full server implementations.
+**MCP-first.** The extension uses `gert-mcp` as its backend — the same binary AI agents use. This means:
+- One server implementation serves both VS Code and AI agents
+- VS Code gets agent-compatible by default
+- For VS Code-specific features (diagnostics push on file change, webview state sync), add a thin JSON-RPC layer alongside MCP — or use MCP notifications if the SDK supports them
 
 ### Reuse from old extension
 
