@@ -391,12 +391,32 @@ meta:
 5. Missing required → execution halts with clear error
 
 **Kernel contract:**
-- Inputs are resolved **before** engine execution starts (pre-processing)
-- Resolved values are passed as `RunConfig.Vars` — the engine never sees `from:` bindings
-- The trace `run_start` event records resolved inputs + their source (`cli`, `provider/cmdb`, `prompt`, `default`)
-- Provider failures are recorded in trace as `input_resolution` events
+- Input resolution is a **kernel API**, not host-specific pre-processing
+- The kernel exposes `ResolveInputs(runbook, hostVars, resolvers) -> (ResolvedVars, []TraceEvent)`
+- All hosts (CLI, MCP, TUI) call the same kernel function — no host reimplements resolution semantics
+- Resolved values + their sources are returned as trace events emitted by the kernel
+- Provider failures are returned as errors with structured context
 
-#### Interface (kernel package, ecosystem implementations)
+#### Kernel API
+
+```go
+// ResolveInputs is the kernel's input resolution service.
+// All hosts (CLI, MCP, TUI) call this — never reimplement resolution logic.
+// Lives in pkg/kernel/engine/ or pkg/kernel/resolve/.
+func ResolveInputs(
+    ctx context.Context,
+    rb *schema.Runbook,
+    hostVars map[string]string,      // CLI flags, env vars
+    resolvers []InputResolver,        // ecosystem-provided resolvers
+) (*ResolvedInputs, error)
+
+type ResolvedInputs struct {
+    Vars   map[string]string          // final resolved values
+    Events []trace.Event              // input_resolved events for trace
+}
+```
+
+#### InputResolver interface (kernel-defined, ecosystem-implemented)
 
 ```go
 // InputResolver is the kernel interface for input resolution.
@@ -432,9 +452,133 @@ type InputBinding struct {
 
 ---
 
-## 6. Phase B → Track 1 remainder (Secrets, Extension Runner, Trace Integrity, Contract Violations)
+## 6. Track 1 Cross-Cutting Decisions
 
-_Sections 9–12 below cover the remaining Track 1 items (secrets §9.1, contract violations §9.2, probes §9.3, trace integrity §12). Phase numbering retained for continuity._
+### 6.1 Canonical Outcome Categories
+
+One set, no drift. The kernel enforces this enum:
+
+| Category | Meaning |
+|----------|---------|
+| `resolved` | Problem fixed |
+| `escalated` | Handed off to another team/process |
+| `no_action` | No intervention needed |
+| `needs_rca` | Mitigated but root cause unknown |
+
+Domain-specific meaning lives in `outcome.code` (free-form string) and `outcome.meta` (free-form map). Do NOT invent new categories mid-doc or mid-runbook. Governance keys on categories; extending the enum breaks policy contracts.
+
+### 6.2 Run Identity (run_start event)
+
+The `run_start` trace event must include identity + provenance for audit-grade traceability:
+
+```json
+{
+  "type": "run_start",
+  "data": {
+    "runbook": "service-health-check",
+    "runbook_hash": "sha256:a1b2c3...",
+    "actor": "oncall@company.com",
+    "host": "runner-prod-03.internal",
+    "gert_version": "v0.1.0 (abc1234)",
+    "tool_hashes": {
+      "health-check": "sha256:d4e5f6...",
+      "restart-service": "sha256:789abc..."
+    },
+    "inputs": { "hostname": "srv1.example.com" },
+    "input_sources": { "hostname": "cli" },
+    "constants": { "health_endpoint": "/healthz" }
+  }
+}
+```
+
+This proves: who ran it, where it ran, what exact runbook + tools were used, and what version of gert executed it. Supply chain for runbooks.
+
+**Schema change:** `RunConfig` gains `Actor string` and `Host string`. `run_start` event in trace writer includes runbook/tool content hashes computed at load time.
+
+### 6.3 Extension Step Runner Protocol (Track 1f)
+
+Extension steps dispatch to external executors via JSON-RPC 2.0 over stdio.
+
+**Packaging:** An extension runner is a binary on `PATH` or referenced by absolute path in the step:
+
+```yaml
+- id: custom_check
+  type: extension
+  extension: my-runner          # resolved as binary "gert-ext-my-runner" on PATH
+  contract:
+    effects: [network]
+    writes: []
+    inputs:
+      target: { type: string, required: true }
+    outputs:
+      status: { type: string }
+  inputs:
+    target: "{{ .hostname }}"
+```
+
+**Protocol:**
+
+```
+Kernel                          Extension Runner (stdio)
+  │                                    │
+  │── spawn gert-ext-my-runner         │
+  │── JSON-RPC: initialize ──────────→ │
+  │←── { capabilities } ──────────────│
+  │                                    │
+  │── JSON-RPC: execute ─────────────→ │
+  │   { inputs, vars, contract }       │
+  │←── { outputs, exit_code } ────────│
+  │                                    │
+  │── JSON-RPC: shutdown ────────────→ │
+  │── process exits                    │
+```
+
+**Methods:**
+
+| Method | Request | Response |
+|--------|---------|----------|
+| `initialize` | `{ protocol_version: "1" }` | `{ capabilities: {} }` |
+| `execute` | `{ inputs: {}, vars: {}, contract: {} }` | `{ outputs: {}, exit_code: 0, stderr: "" }` |
+| `shutdown` | `{}` | `{}` (then process exits) |
+
+**Kernel enforcement:**
+- Extension runner outputs are checked against `contract.outputs` — undeclared outputs are stripped and a `contract_violation` event is emitted
+- `contract.effects` and `contract.writes` are enforced by governance the same way as tool steps — the kernel doesn't trust the runner, it trusts the declared contract
+- If the runner process crashes or times out → step status `error`
+
+**Lifecycle:** spawn on first use, reuse for subsequent extension steps referencing the same runner, shutdown on engine completion. Same pattern as jsonrpc tool transport.
+
+### 6.4 Approval Signing — Algorithm Flexibility
+
+HMAC-SHA256 for v0 bootstrap. The interface supports swapping to asymmetric signatures later:
+
+```go
+type ApprovalResponse struct {
+    TicketID   string    `json:"ticket_id"`
+    Approved   bool      `json:"approved"`
+    ApproverID string    `json:"approver_id"`
+    Method     string    `json:"method"`
+    Timestamp  time.Time `json:"timestamp"`
+    Signature  string    `json:"signature,omitempty"`
+    SignatureAlg string  `json:"signature_alg,omitempty"` // "hmac-sha256", "ed25519", "rs256"
+    KeyID      string    `json:"key_id,omitempty"`        // for key rotation
+    Reason     string    `json:"reason,omitempty"`
+}
+```
+
+- `signature_alg` and `key_id` make the format future-proof for asymmetric (Ed25519, RSA)
+- Kernel verification policy (`require_verified_approval: true`) calls a `SignatureVerifier` interface — ecosystem provides the implementation (HMAC, Ed25519, etc.)
+- Don't hard-code "HMAC only" into governance language — the kernel checks `verified: bool`, not the algorithm
+
+### 6.5 Watch Mode Framing
+
+`gert watch` is a **developer convenience**, not a scheduler. It literally calls `engine.New() + engine.Run()` in a loop. No new kernel interfaces. No new engine state. It's a for-loop in `cmd/gert/`.
+
+---
+
+## 7. Track 1 remainder (Secrets, Contract Violations, Probes, Trace Integrity)
+
+_Sections 9–12 below cover the remaining Track 1 items._
 
 ---
 
@@ -866,8 +1010,9 @@ gert exec runbook.yaml --mode probe --var hostname=test.example.com
 ```
 
 **Behavior:**
-- Executes tool steps for **read-only tools only** (`side_effects: false`)
-- Skips tools with `side_effects: true` (reports contract + governance as dry-run does)
+- Executes tool steps where `writes == []` **and** `effects` are in an allowed list (default: `[network, database]` for read-only probing)
+- Skips tools with any `writes` (reports contract + governance as dry-run does)
+- `--probe-allow-effects network,database` flag controls which effects are safe to probe
 - For executed tools: applies contract violation detection (§9.2)
 - For `deterministic: true` tools: runs twice with same inputs, verifies output consistency
 
@@ -1175,18 +1320,20 @@ gert watch runbooks/health-check.yaml --interval 5m --config gert-watch.yaml
 
 ### Track 1 — Kernel changes (must do first)
 
-| Change | Kernel package | Track |
-|--------|---------------|-------|
-| Contract taxonomy (`effects` field) | contract, schema, validate, governance | 1b |
-| `ApprovalProvider` (resumable, ticket-based) | engine, trace | 1c |
-| `InputResolver` interface + resolution semantics | schema, engine | 1d |
-| `SecretRef` in schema | schema, validate | 1e |
-| Extension step runner | engine, executor | 1f |
-| `prev_hash` in trace events | trace | 1g |
-| Trace signing + verification policy | trace, governance | 1g |
-| Contract violation detection | engine, trace | 1h |
-| Probe mode | engine | 1h |
-| `context.Context` on all provider interfaces | engine | 1b (prerequisite) |
+| Change | Kernel package | Track | Notes |
+|--------|---------------|-------|-------|
+| Contract taxonomy (`effects`, deprecate `side_effects`) | contract, schema, validate, governance | 1b | `reads`/`writes` for parallel only, `effects` for governance |
+| Resumable approval (ticket-based, Submit/Wait) | engine, trace | 1c | No blocking calls; supports sync + async + resume |
+| `ResolveInputs` kernel API | engine (or resolve/) | 1d | All hosts call same function; ecosystem provides resolvers |
+| `SecretRef` in schema | schema, validate | 1e | Declaration, validation, auto-redaction |
+| Extension step runner (JSON-RPC stdio protocol) | engine, executor | 1f | §6.3 protocol spec |
+| `prev_hash` in trace events | trace | 1g | Hash chain for tamper evidence |
+| Trace signing + `SignatureVerifier` interface | trace, governance | 1g | Algorithm-flexible (HMAC → Ed25519) |
+| Run identity in `run_start` | trace, engine | 1g | Actor, host, gert_version, runbook/tool hashes |
+| Contract violation detection | engine, trace | 1h | Runtime + probe mode |
+| Probe mode (`writes==[]` + allowed effects) | engine | 1h | Not keyed on deprecated `side_effects` |
+| `context.Context` on all provider interfaces | engine | 1b (prereq) | ApprovalProvider, ToolExecutor, InputResolver |
+| Canonical outcome enum (4 categories only) | schema | 1a | resolved, escalated, no_action, needs_rca. No drift. |
 
 ### Track 2 — Ecosystem-only (no kernel changes)
 
