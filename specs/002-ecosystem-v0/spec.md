@@ -169,6 +169,7 @@ A developer runs `gert watch` to repeatedly execute a health check runbook on an
 - **FR-004**: Derived risk MUST be informational only; enforcement MUST be policy-driven via governance rules
 - **FR-005**: Kernel MUST expose `ApprovalProvider` interface with `Submit()` returning a ticket and `Wait()` for optional blocking
 - **FR-006**: Engine MUST persist run state when approval is pending in async mode, enabling `gert resume`
+- **FR-006a**: Approval ticket expiration MUST be configurable per-runbook via `governance.approval_timeout` with a default of 30 minutes. Expired tickets are treated as rejections.
 - **FR-007**: Kernel MUST expose `ResolveInputs()` API that all hosts call for input resolution
 - **FR-008**: Resolution order MUST be: CLI vars → provider → prompt → default → error if required
 - **FR-009**: Each resolved input MUST produce a trace event recording its source
@@ -176,6 +177,7 @@ A developer runs `gert watch` to repeatedly execute a health check runbook on an
 - **FR-011**: Secret values MUST never appear in traces — only secret names
 - **FR-012**: Values of declared secrets MUST be auto-redacted from tool stdout/stderr in traces
 - **FR-013**: Extension step runner MUST communicate via JSON-RPC 2.0 over stdio with initialize/execute/shutdown methods
+- **FR-013a**: Extension runner `execute` call timeout MUST use the step's `timeout` field if present, otherwise default to 60 seconds. Timeout triggers step status `error`.
 - **FR-014**: Extension runner outputs MUST be checked against `contract.outputs` — undeclared outputs stripped with violation event
 - **FR-015**: Every trace event MUST include `prev_hash` (SHA-256 of previous event JSON) for hash chaining
 - **FR-016**: `run_complete` event MUST include `chain_hash` and optional `signature` for trace signing
