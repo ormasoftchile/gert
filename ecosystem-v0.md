@@ -179,9 +179,9 @@ The current contract model conflates "effects" with "resources". A tool declarin
 
 ```yaml
 contract:
-  effects: [network]                    # what systems does this touch?
-  writes: [service]                     # what domain resources does this mutate?
-  reads: [network]                      # what domain resources does this observe?
+  effects: [network]                    # what external systems does this touch?
+  writes: [service]                     # what domain resources does this mutate? (for parallel safety)
+  reads: [service_status]               # what domain resources does this observe? (for parallel safety)
   idempotent: true
   deterministic: false
 ```
@@ -221,21 +221,27 @@ governance:
 | Condition | Risk |
 |-----------|------|
 | No effects, no writes | Low |
-| Effects but no writes (read-only network calls) | Low |
+| Effects but no writes (read-only) | Low |
 | Effects + writes + idempotent | Medium |
 | Effects + writes + not idempotent + deterministic | High |
 | Effects + writes + not idempotent + not deterministic | Critical |
 
+**Important:** Derived risk is **informational only**. It provides a default classification for runbooks without explicit governance rules. **Enforcement is always policy-driven** via `governance.rules`. Organizations should not rely on derived risk for production governance — write explicit rules that match on `effects` and `writes` for their specific resources and environments.
+
 ### Migration
 
-`side_effects: true/false` remains supported as shorthand. If `effects` is present, it takes precedence. If only `side_effects` is declared, the kernel infers `effects: [unknown]` for `true` and `effects: []` for `false`.
+`side_effects` is **deprecated** and will be **removed in the next major schema version**:
+- If `effects` is present, `side_effects` is **ignored** (with a validation warning)
+- If only `side_effects` is declared: kernel auto-migrates (`true` → `effects: [unknown]`, `false` → `effects: []`) and emits a deprecation warning
+- New tool definitions using `side_effects` are a validation **error** if `effects` is also declared
+- Do not describe `side_effects` as part of the current design. It exists only for backward compatibility with pre-kernel/v0 tool packs.
 
 ### Schema change
 
 - Add `Effects []string` to `contract.Contract`
-- `SideEffects` becomes computed from `Effects + Writes` (or stays as explicit override for backward compat)
-- Governance rules gain `Effects` matching alongside `Reads`/`Writes`
-- Validation rule: warn if `side_effects: false` but `effects` is non-empty
+- `SideEffects *bool` accepted in YAML only for migration; deprecated, will be removed
+- Governance rules use `Effects` matching. `SideEffects` is not used by governance in the new model.
+- Validation: error if both `side_effects` and `effects` declared; warning on any `side_effects` use
 
 ---
 
@@ -546,6 +552,8 @@ Kernel                          Extension Runner (stdio)
 - `contract.effects` and `contract.writes` are enforced by governance the same way as tool steps — the kernel doesn't trust the runner, it trusts the declared contract
 - If the runner process crashes or times out → step status `error`
 
+**Trust boundary:** Extension runners are **trusted executables**. gert enforces contracts at the interface level (inputs/outputs/governance) but **cannot prevent undeclared side effects inside runners**. A runner could make network calls, write files, or leak secrets without gert's knowledge. Governance must treat extension runners as **privileged code** — the same trust level as tool binaries. Auditors should not assume gert sandboxes extensions.
+
 **Lifecycle:** spawn on first use, reuse for subsequent extension steps referencing the same runner, shutdown on engine completion. Same pattern as jsonrpc tool transport.
 
 ### 6.4 Approval Signing — Algorithm Flexibility
@@ -570,9 +578,21 @@ type ApprovalResponse struct {
 - Kernel verification policy (`require_verified_approval: true`) calls a `SignatureVerifier` interface — ecosystem provides the implementation (HMAC, Ed25519, etc.)
 - Don't hard-code "HMAC only" into governance language — the kernel checks `verified: bool`, not the algorithm
 
+**Approval invariants:**
+- **Validity window:** approval responses must arrive within `Timeout` of the request. Expired approvals are treated as rejections.
+- **Clock skew tolerance:** 30 seconds. If `response.Timestamp` is more than 30s before `request.Created`, reject as stale.
+- **Multi-approver aggregation:** when `min_approvers > 1`, the kernel collects N approvals before proceeding. Each approval is a separate `ApprovalResponse`. The engine resumes only when N responses with `approved: true` are received, or any single `approved: false` halts with rejection.
+- **Replay protection:** approval responses are bound to `ticket_id`. A response for a different ticket is ignored. Tickets are single-use — once resolved (approved/rejected/expired), the ticket cannot be reused.
+
 ### 6.5 Watch Mode Framing
 
 `gert watch` is a **developer convenience**, not a scheduler. It literally calls `engine.New() + engine.Run()` in a loop. No new kernel interfaces. No new engine state. It's a for-loop in `cmd/gert/`.
+
+**Stop semantics:**
+- `--stop-on` triggers only on **terminal outcomes** (the run reached an `end` step)
+- If a run fails before reaching an outcome (engine error) → loop stops (errors are not recoverable by retrying)
+- If a run enters `approval_pending` state → loop stops (can't auto-resume async approvals in a loop)
+- Trace signing failures → loop stops (integrity cannot be guaranteed)
 
 ---
 
@@ -843,14 +863,7 @@ Providers communicate over JSON-RPC 2.0 stdio (same as old `pkg/inputs/`):
 
 #### Engine integration
 
-Input resolution happens **before** engine execution:
-1. Parse runbook → extract `from:` bindings that reference providers
-2. Group bindings by provider
-3. Call each provider's `Resolve()` method
-4. Merge resolved values into `RunConfig.Vars`
-5. Start engine execution
-
-The kernel engine itself doesn't know about providers — it receives pre-resolved vars. Provider resolution is a pre-processing step in the CLI or MCP server.
+Providers are invoked via the kernel's `ResolveInputs` API (§5). Hosts supply resolver implementations, but resolution order, tracing, and error semantics are kernel-defined. Hosts do **not** pre-process inputs — they call `ResolveInputs()` and pass the result to the engine.
 
 ---
 
@@ -1389,9 +1402,11 @@ gert operates at the intersection of **runbook automation**, **incident response
 
 ### Where gert is strongest
 
-**1. Contract-driven governance (unique)**
+**1. Governance derived from declared behavior, not identity (unique)**
 
-No competitor has behavioral contracts on steps. Rundeck has ACLs. Ansible has `become`. Temporal has task queues. None derive risk classification from `side_effects × deterministic × idempotent` and auto-escalate to approval gates. This is gert's fundamental differentiator — governance emerges from declared behavior, not from command-name allowlists.
+This is the core thesis. Most systems govern *who* runs, *where* it runs, or *what command name* is invoked. gert governs **what the step does** — its effects, its writes, its idempotency, its determinism. Risk emerges from behavior, not from ACLs or command allowlists.
+
+No competitor does this. Rundeck has ACLs (who). Ansible has `become` (privilege). Temporal has task queues (where). gert has contracts (what). This means governance scales with the runbook — add a dangerous step, governance automatically escalates. No admin intervention.
 
 **2. Deterministic replay + scenario testing (rare)**
 
