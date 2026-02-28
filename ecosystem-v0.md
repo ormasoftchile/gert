@@ -353,7 +353,8 @@ This is the key insight: **the kernel doesn't need a workflow engine**. It needs
 
 #### Cryptographic signing + verification
 
-- Provider generates HMAC-SHA256 over `ticket_id + approved + timestamp` using a shared secret
+- Provider generates HMAC-SHA256 over `ticket_id + approved + timestamp + request_hash` using a shared secret
+- `request_hash` = SHA-256 of `runbook_hash + step_id + contract_json + inputs_json` — this binds the approval to the specific action, preventing replay if the request changes
 - The kernel supports a **verification policy**: if `governance.require_signed_approvals: true`, the engine verifies the signature before accepting the approval
 - Verification keys are provided via environment variable (`GERT_APPROVAL_VERIFY_KEY`)
 - If verification fails → approval treated as rejected, `contract_violation` trace event
@@ -455,6 +456,16 @@ type InputBinding struct {
 - **Determinism:** replay must produce the same results. If input resolution isn't specified, replay can't reproduce the original run.
 - **Trace completeness:** the trace must record where each input came from, or audit is incomplete.
 - **Validation:** `gert validate` should check that all `from:` bindings reference configured providers.
+
+#### InputProvider ↔ InputResolver adapter rule
+
+The kernel interface (`InputResolver`) is binding-oriented (resolves one binding at a time). The ecosystem `InputProvider` interface is batch-oriented (resolves many bindings in one call over JSON-RPC). These are bridged:
+
+- `ResolveInputs` groups bindings by provider prefix (e.g., all `provider/cmdb.*` bindings go to the `cmdb` provider)
+- Each group is sent as a single batch `Resolve` call to the `InputProvider`
+- The provider returns a map; the kernel distributes results back to individual bindings
+- The kernel remains binding-oriented for trace granularity (one `input_resolved` event per binding)
+- Batching is an optimization; the semantic contract is per-binding resolution
 
 ---
 

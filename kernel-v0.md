@@ -456,14 +456,22 @@ A step may declare a `scope` — an explicit namespace for grouping related stat
 - id: round_0_agent_a
   type: extension
   extension: llm-agent
-  scope: "round/0"
+  scope: "round.0"
   inputs:
     prompt: "{{ .question }}"
 ```
 
-- Variables written by a step with `scope: "round/0"` are stored under `scope.round/0.*`
+#### Scope path format
+
+**Canonical format: dot-separated segments** (e.g., `round.0`, `debate.round.1`). YAML may use `/` as syntactic sugar for readability; the kernel normalizes to dot form for storage, template access, and visibility matching.
+
+| YAML (author writes) | Kernel stores | Template access |
+|----------------------|---------------|-----------------|
+| `scope: "round/0"` | `scope.round.0` | `{{ .scope.round.0.var }}` |
+| `scope: "debate/round/1"` | `scope.debate.round.1` | `{{ .scope.debate.round.1.var }}` |
+
 - Scope vars persist within the scope but are **not visible to other scopes** unless exported
-- Steps in the same scope can read each other's outputs via `{{ .scope.round/0.var }}`
+- Steps in the same scope can read each other's outputs via `{{ .scope.round.0.var }}`
 
 #### Export
 
@@ -482,6 +490,20 @@ A step may export scope-local or step-local variables to the global namespace:
 - Exporting a name not declared in `contract.outputs` → validation error
 - Exported vars become available to all subsequent steps
 - Without `export`, scope/step vars die with their scope
+
+**Keyed export (with `for_each.key`):** When a step uses both `for_each.key` and `export`, the exported outputs are stored as a **map** keyed by the iteration key:
+
+```
+# Step with for_each.key="agent.id" and export=["response"]
+# After execution, global variable structure:
+{{ .initial_responses }} → {
+  "advocate": { "response": "..." },
+  "skeptic":  { "response": "..." },
+  "analyst":  { "response": "..." }
+}
+```
+
+Template access: `{{ .initial_responses.skeptic.response }}`
 
 #### Merge rules
 
@@ -505,6 +527,15 @@ Steps may declare visibility constraints on their inputs — which variables the
 
 - `visibility.allow` — glob patterns of variable paths this step can access (whitelist)
 - `visibility.deny` — glob patterns explicitly hidden from this step (blacklist, applied after allow)
+
+**Glob semantics:**
+- Paths are dot-separated (matching canonical scope format): `scope.round.0.*`
+- `*` matches one segment: `scope.round.*` matches `scope.round.0` but not `scope.round.0.response`
+- `**` matches any depth: `scope.round.**` matches `scope.round.0.response` and deeper
+- `deny` rules override `allow`
+- If `allow` is present, default for unlisted paths is **deny**
+- If `allow` is absent, default for unlisted paths is **allow** (only `deny` applies)
+
 - **Kernel behavior (v0):** recorded in trace as `visibility_applied` event. The kernel passes visibility metadata to executors/resolvers so hosts can construct filtered variable views. **The kernel does not sandbox tools or filter variables itself in v0.** Hosts and extension runners SHOULD enforce visibility by providing only the allowed variables as inputs to the tool/extension process.
 - The kernel does not prevent a tool from accessing hidden state through other channels (env vars, filesystem). Visibility is best-effort via host-controlled prompt/tool input construction.
 - **Trace event:** `{ type: "visibility_applied", data: { step_id, allow, deny, filtered_view_hash } }`
@@ -723,6 +754,12 @@ Every trace event MAY include a `principal` field, and MUST include it when the 
 | `approval_submitted` / `approval_resolved` | The approver (human or agent) |
 
 If no principal is specified, the default is `{ kind: "system", id: "kernel" }`.
+
+**Setting principal:**
+- Steps may declare `principal` explicitly in YAML (for extension/agent steps)
+- In `for_each` with `key`, the principal is derived from the iteration item if the item has an `id` and `role` field — the kernel auto-populates `{ kind: "agent", id: <key>, role: <item.role> }` unless explicitly overridden
+- Tool steps inherit principal from `RunConfig.Actor` (set via CLI `--as` flag)
+- Principal is **required** on `step_start`/`step_complete` for extension and manual steps; optional for tool steps
 
 ### Event types
 
