@@ -477,8 +477,10 @@ A step may export scope-local or step-local variables to the global namespace:
   export: ["decision", "scores"]
 ```
 
-- `export: [<var_names>]` promotes the listed variables from the step/scope namespace → global
-- Exported vars become available to all subsequent steps as `{{ .decision }}`, `{{ .scores }}`
+- `export` takes a list of **output field names** from the step's `contract.outputs`. Resolution: look in step outputs → promote to global as `{{ .decision }}`, `{{ .scores }}`
+- If the exported name collides with an existing global variable → **runtime error** (no silent overwrite)
+- Exporting a name not declared in `contract.outputs` → validation error
+- Exported vars become available to all subsequent steps
 - Without `export`, scope/step vars die with their scope
 
 #### Merge rules
@@ -503,9 +505,9 @@ Steps may declare visibility constraints on their inputs — which variables the
 
 - `visibility.allow` — glob patterns of variable paths this step can access (whitelist)
 - `visibility.deny` — glob patterns explicitly hidden from this step (blacklist, applied after allow)
-- **Kernel behavior (v0):** recorded in trace as `visibility_applied` event. The kernel passes visibility metadata to executors/resolvers. **Enforcement is optional in v0** — hosts and extension runners may enforce it, but the kernel does not filter variables. Future versions may enforce at the engine level.
-- **Trace event:** `{ type: "visibility_applied", data: { step_id, allow, deny } }`
-- Purpose: enables debate patterns where agents must not see each other's outputs until a specific phase.
+- **Kernel behavior (v0):** recorded in trace as `visibility_applied` event. The kernel passes visibility metadata to executors/resolvers so hosts can construct filtered variable views. **The kernel does not sandbox tools or filter variables itself in v0.** Hosts and extension runners SHOULD enforce visibility by providing only the allowed variables as inputs to the tool/extension process.
+- The kernel does not prevent a tool from accessing hidden state through other channels (env vars, filesystem). Visibility is best-effort via host-controlled prompt/tool input construction.
+- **Trace event:** `{ type: "visibility_applied", data: { step_id, allow, deny, filtered_view_hash } }`
 
 ---
 

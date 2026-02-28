@@ -560,7 +560,7 @@ Kernel                          Extension Runner (stdio)
 
 **Trust boundary:** Extension runners are **trusted executables**. gert enforces contracts at the interface level (inputs/outputs/governance) but **cannot prevent undeclared side effects inside runners**. A runner could make network calls, write files, or leak secrets without gert's knowledge. Governance must treat extension runners as **privileged code** — the same trust level as tool binaries. Auditors should not assume gert sandboxes extensions.
 
-**Statelessness invariant:** Extension runners **must be stateless between `execute` calls**. The kernel does not guarantee process isolation per step — it reuses the runner process for efficiency. Runners that cache data or mutate internal state between calls will break replay determinism. Each `execute` call must be treated as independent — persisted state between calls is unsupported.
+**Statelessness invariant:** Extension runners **MUST behave deterministically given the same inputs** and **MUST NOT rely on hidden mutable state that changes outputs across calls**. Read-only caching for performance is allowed if it does not affect outputs and does not persist secrets. The kernel reuses the runner process for efficiency but does not guarantee isolation between calls.
 
 **Contract honesty:** gert enforces declared contracts but **cannot verify undeclared side effects**. A tool declaring `effects: [network]` could also write to the filesystem. Governance must assume tools and extensions are trusted code. The contract model is a declaration of intent, not a sandbox.
 
@@ -611,13 +611,11 @@ type ApprovalResponse struct {
 
 ---
 
-## 7. Track 1 remainder (Secrets, Contract Violations, Probes, Trace Integrity)
-
-_Sections 9–12 below cover the remaining Track 1 items._
+_Track 1 remainder: Secrets (§12), Contract Violations (§12.2), Probes (§12.3), Trace Integrity (§15)._
 
 ---
 
-## 4. Phase C — Terminal UI (TUI)
+## 7. TUI (Track 2a)
 
 ### Goal
 
@@ -697,7 +695,7 @@ Port the layout and rendering; replace the engine calls with kernel's `engine.Ne
 
 ---
 
-## 5. Phase D — MCP Server
+## 8. MCP Server (Track 2b)
 
 ### Goal
 
@@ -750,7 +748,7 @@ cmd/gert-mcp/ ──→ pkg/ecosystem/mcp/
 
 ---
 
-## 6. Phase E — VS Code Extension
+## 9. VS Code Extension (Track 2c)
 
 ### Goal
 
@@ -808,7 +806,7 @@ Port the extension shell and webview layout; replace the JSON-RPC calls with MCP
 
 ---
 
-## 7. Phase F — Input Providers
+## 10. Input Providers (Track 1d implementations)
 
 ### Goal
 
@@ -882,7 +880,7 @@ Providers are invoked via the kernel's `ResolveInputs` API (§5). Hosts supply r
 
 ---
 
-## 8. Cross-Cutting: Tool as MCP Consumer
+## 11. Tool as MCP Consumer
 
 ### Problem
 
@@ -924,7 +922,7 @@ Lower than Phases A–F. Can be added when AI agent integration demands it.
 
 ---
 
-## 9. Phase G — Secrets + Contract Hardening
+## 12. Secrets + Contract Hardening (Track 1e/1h)
 
 ### 9.1 Secrets Convention
 
@@ -1038,18 +1036,17 @@ gert exec runbook.yaml --mode probe --var hostname=test.example.com
 ```
 
 **Behavior:**
-- Executes tool steps where `writes == []` **and** `effects` are in an allowed list (default: `[network, database]` for read-only probing)
+- Executes tool steps where `writes == []` **and** `effects` are in an allowed list
+- **Default allowed effects for probe: `[network]` only.** Database probes require explicit opt-in: `--probe-allow-effects network,database`
 - Skips tools with any `writes` (reports contract + governance as dry-run does)
-- `--probe-allow-effects network,database` flag controls which effects are safe to probe
-- **Default allowed effects for probe: `[network]` only.** Database probes are not universally safe (expensive queries, locks, triggers). Organizations must explicitly opt in to database probing via the flag.
-- For executed tools: applies contract violation detection (§9.2)
+- For executed tools: applies contract violation detection (§12.2)
 - For `deterministic: true` tools: runs twice with same inputs, verifies output consistency
 
 This lets you validate contracts against real infrastructure without causing side effects.
 
 ---
 
-## 10. Phase H — Replay Excellence
+## 13. Replay Excellence (Track 2d)
 
 ### 10.1 Auto-Record Mode
 
@@ -1145,7 +1142,7 @@ gert scenario demote healthy-restart
 
 ---
 
-## 11. Phase I — Outcome Intelligence
+## 14. Outcome Intelligence (Track 2e)
 
 ### 11.1 Outcome Aggregation CLI
 
@@ -1231,7 +1228,7 @@ meta:
 
 ---
 
-## 12. Phase J — Trace Integrity
+## 15. Trace Integrity (Track 1g)
 
 ### 12.1 Hash Chaining
 
@@ -1300,7 +1297,7 @@ gert trace verify run.jsonl --key-id prod-2026
 
 ---
 
-## 13. Phase K — Watch Mode
+## 16. Watch Mode (Track 2f)
 
 ### Problem
 
@@ -1347,7 +1344,7 @@ gert watch runbooks/health-check.yaml --interval 5m --config gert-watch.yaml
 
 ---
 
-## 14. Summary — What the Kernel Needs
+## 17. Summary — What the Kernel Needs
 
 ### Track 1 — Kernel changes (must do first)
 
@@ -1365,6 +1362,12 @@ gert watch runbooks/health-check.yaml --interval 5m --config gert-watch.yaml
 | Probe mode (`writes==[]` + allowed effects) | engine | 1h | Not keyed on deprecated `side_effects` |
 | `context.Context` on all provider interfaces | engine | 1b (prereq) | ApprovalProvider, ToolExecutor, InputResolver |
 | Canonical outcome enum (4 categories only) | schema | 1a | resolved, escalated, no_action, needs_rca. No drift. |
+| Scoped state + export semantics (`scope`, `export`) | schema, engine, trace | 1i | Variable namespaces, merge rules, scope_export trace event |
+| Visibility intent metadata (`visibility`) | schema, trace | 1i | allow/deny globs; recorded in trace; enforcement optional in v0 |
+| Keyed fan-out outputs (`for_each.key`) | schema, engine, trace | 1i | Map-structured outputs; key collisions = runtime error |
+| Principal attribution (`principal`) | trace, engine | 1i | kind/id/role/model on attributable trace events |
+| `repeat` block (bounded multi-step iteration) | schema, engine, validate, trace | 1i | max + until; repeat_start/repeat_iteration trace events |
+| `contract_violations` governance matcher | governance, schema | 1h | New rule type: `contract_violations: deny` promotes warnings to errors |
 
 ### Track 2 — Ecosystem-only (no kernel changes)
 
@@ -1421,7 +1424,7 @@ Less design, more usage is the correct next move.
 
 ---
 
-## 15. MAD-Ready Patterns (Multi-Agent Debate)
+## 18. MAD-Ready Patterns (Multi-Agent Debate)
 
 gert does not implement MAD as a feature. The kernel primitives — `for_each` with keyed outputs, `repeat`, scoped state, visibility intent, principal attribution, extension runners — compose into MAD patterns naturally. This section documents conventions, not new kernel features.
 
@@ -1504,6 +1507,8 @@ actions:
       response: { from: stdout }
 ```
 
+**Note:** This example uses `extract: { from: stdout }` mapping from the kernel tool schema (kernel-v0.md §12). The tool binary (`gert-llm-provider`) writes the LLM response to stdout; the kernel's extract plumbing maps it to the declared `response` contract output.
+
 **Key governance point:** LLM calls are `effects: [network]`, `deterministic: false`. A governance rule like `effects: [network], deterministic: false → require-approval` would gate LLM usage — same as any other risky tool.
 
 ### 15.3 MAD-Ready Runbook Skeleton
@@ -1541,7 +1546,7 @@ steps:
       parallel: true
     visibility:
       allow: ["question"]
-      deny: ["scope.round/0.*"]        # agents can't see each other
+      deny: ["scope.round/0.*"]        # intent: hosts/executors SHOULD filter variable view
     inputs:
       prompt: "{{ .agent.role }}: {{ .question }}"
     export: ["response"]
@@ -1600,13 +1605,15 @@ steps:
 ```
 
 **What this demonstrates:**
-- `for_each` with `key` for named fan-out (agents identified by ID)
-- `scope` for round-based isolation (round/0, round/1)
-- `visibility` for information control (blind in round 0, informed in round 1)
+- `for_each` with `key` for named fan-out — schema defined in kernel-v0.md §6.4
+- `scope` for round-based isolation — schema defined in kernel-v0.md §7
+- `visibility` as **intent + trace** (hosts/executors SHOULD enforce by filtering variable view; kernel records intent but does not sandbox)
 - Extension runner as judge (contract-governed like any step)
-- `export` for promoting decisions to global scope
-- `principal` attribution in trace (each agent step records its agent ID)
+- `export` for promoting step outputs to global scope — export resolution rules in kernel-v0.md §7
+- `principal` attribution in trace (each agent step records its agent ID) — defined in kernel-v0.md §11
 - No MAD-specific kernel features — only existing primitives composed
+
+**Note:** All schema additions used in this skeleton (`scope`, `export`, `visibility`, `for_each.key`, `repeat`) are kernel changes tracked in §17 Track 1i.
 
 **Not shown (future via `repeat`):**
 ```yaml
@@ -1622,7 +1629,7 @@ steps:
 
 ---
 
-## 10. Competitive Analysis
+## 19. Competitive Analysis
 
 ### Landscape
 
