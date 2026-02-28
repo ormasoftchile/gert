@@ -3,6 +3,7 @@ package engine
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -23,13 +24,13 @@ import (
 // ToolExecutor executes tool actions. The default implementation spawns processes;
 // replay mode substitutes canned responses.
 type ToolExecutor interface {
-	Execute(toolDef *schema.ToolDefinition, actionName string, inputs map[string]any, vars map[string]any) (*executor.Result, error)
+	Execute(ctx context.Context, toolDef *schema.ToolDefinition, actionName string, inputs map[string]any, vars map[string]any) (*executor.Result, error)
 }
 
 // defaultExecutor delegates to executor.RunTool.
 type defaultExecutor struct{}
 
-func (d *defaultExecutor) Execute(td *schema.ToolDefinition, action string, inputs map[string]any, vars map[string]any) (*executor.Result, error) {
+func (d *defaultExecutor) Execute(ctx context.Context, td *schema.ToolDefinition, action string, inputs map[string]any, vars map[string]any) (*executor.Result, error) {
 	return executor.RunTool(td, action, inputs, vars)
 }
 
@@ -41,9 +42,9 @@ type RunConfig struct {
 	BaseDir     string
 	ProjectRoot string
 	Trace       *trace.Writer
-	Stdin       io.Reader      // for manual step input; defaults to os.Stdin
-	Stdout      io.Writer      // for output; defaults to os.Stdout
-	ToolExec    ToolExecutor   // custom tool executor (e.g., replay); nil uses default
+	Stdin       io.Reader    // for manual step input; defaults to os.Stdin
+	Stdout      io.Writer    // for output; defaults to os.Stdout
+	ToolExec    ToolExecutor // custom tool executor (e.g., replay); nil uses default
 }
 
 // RunResult is the outcome of executing a runbook.
@@ -103,12 +104,12 @@ func New(rb *schema.Runbook, cfg RunConfig) *Engine {
 		vars:     vars,
 		trace:    cfg.Trace,
 		toolExec: te,
-		tools: make(map[string]*schema.ToolDefinition),
+		tools:    make(map[string]*schema.ToolDefinition),
 	}
 }
 
 // Run executes the runbook sequentially.
-func (e *Engine) Run() *RunResult {
+func (e *Engine) Run(ctx context.Context) *RunResult {
 	e.startTime = time.Now()
 
 	// Emit run_start
@@ -128,7 +129,7 @@ func (e *Engine) Run() *RunResult {
 	e.loadTools()
 
 	// Execute steps
-	result := e.executeSteps(e.rb.Steps, true)
+	result := e.executeSteps(ctx, e.rb.Steps, true)
 
 	duration := time.Since(e.startTime)
 	result.Duration = duration
@@ -154,7 +155,7 @@ func (e *Engine) Run() *RunResult {
 // executeSteps runs a list of steps sequentially.
 // If requireEnd is true, returns an error if execution completes without an end step.
 // For top-level execution requireEnd=true; for parallel/branch sub-blocks requireEnd=false.
-func (e *Engine) executeSteps(steps []schema.Step, requireEnd bool) *RunResult {
+func (e *Engine) executeSteps(ctx context.Context, steps []schema.Step, requireEnd bool) *RunResult {
 	// retryCounts tracks how many times a backward next has jumped to each target
 	retryCounts := make(map[string]int)
 
@@ -186,7 +187,7 @@ func (e *Engine) executeSteps(steps []schema.Step, requireEnd bool) *RunResult {
 
 		// Handle for_each expansion
 		if step.ForEach != nil {
-			result := e.executeForEach(step, stepID)
+			result := e.executeForEach(ctx, step, stepID)
 			if result != nil {
 				return result
 			}
@@ -194,7 +195,7 @@ func (e *Engine) executeSteps(steps []schema.Step, requireEnd bool) *RunResult {
 		}
 
 		// Execute the step
-		result := e.executeStep(step, stepID)
+		result := e.executeStep(ctx, step, stepID)
 		if result != nil {
 			return result
 		}
@@ -248,7 +249,7 @@ func (e *Engine) executeSteps(steps []schema.Step, requireEnd bool) *RunResult {
 
 // executeStep dispatches a single step by type.
 // Returns nil to continue to next step, or a RunResult to terminate.
-func (e *Engine) executeStep(step schema.Step, stepID string) *RunResult {
+func (e *Engine) executeStep(ctx context.Context, step schema.Step, stepID string) *RunResult {
 	start := time.Now()
 
 	// Track visited steps for test harness
@@ -300,19 +301,19 @@ func (e *Engine) executeStep(step schema.Step, stepID string) *RunResult {
 
 	switch step.Type {
 	case schema.StepTool:
-		return e.executeTool(step, stepID, start)
+		return e.executeTool(ctx, step, stepID, start)
 	case schema.StepManual:
-		return e.executeManual(step, stepID, start)
+		return e.executeManual(ctx, step, stepID, start)
 	case schema.StepAssert:
-		return e.executeAssert(step, stepID, start)
+		return e.executeAssert(ctx, step, stepID, start)
 	case schema.StepBranch:
-		return e.executeBranch(step, stepID)
+		return e.executeBranch(ctx, step, stepID)
 	case schema.StepParallel:
-		return e.executeParallel(step, stepID)
+		return e.executeParallel(ctx, step, stepID)
 	case schema.StepEnd:
-		return e.executeEnd(step, stepID, start)
+		return e.executeEnd(ctx, step, stepID, start)
 	case schema.StepExtension:
-		return e.executeExtension(step, stepID, start)
+		return e.executeExtension(ctx, step, stepID, start)
 	default:
 		return &RunResult{Status: "error", Error: fmt.Errorf("step %s: unsupported type %q", stepID, step.Type)}
 	}
@@ -322,7 +323,7 @@ func (e *Engine) executeStep(step schema.Step, stepID string) *RunResult {
 // Step type executors
 // ---------------------------------------------------------------------------
 
-func (e *Engine) executeTool(step schema.Step, stepID string, start time.Time) *RunResult {
+func (e *Engine) executeTool(ctx context.Context, step schema.Step, stepID string, start time.Time) *RunResult {
 	if e.trace != nil {
 		e.trace.EmitStepStart(stepID, "tool", nil)
 	}
@@ -371,7 +372,7 @@ func (e *Engine) executeTool(step schema.Step, stepID string, start time.Time) *
 	}
 
 	// Execute via tool executor (default or replay)
-	result, err := e.toolExec.Execute(td, step.Action, resolvedInputs, e.vars)
+	result, err := e.toolExec.Execute(ctx, td, step.Action, resolvedInputs, e.vars)
 	if err != nil {
 		e.emitStepError(stepID, start, "exec", err.Error())
 		return &RunResult{Status: "error", Error: fmt.Errorf("step %s: %w", stepID, err)}
@@ -408,7 +409,7 @@ func (e *Engine) executeTool(step schema.Step, stepID string, start time.Time) *
 	return nil
 }
 
-func (e *Engine) executeManual(step schema.Step, stepID string, start time.Time) *RunResult {
+func (e *Engine) executeManual(ctx context.Context, step schema.Step, stepID string, start time.Time) *RunResult {
 	if e.trace != nil {
 		e.trace.EmitStepStart(stepID, "manual", nil)
 	}
@@ -457,7 +458,7 @@ func (e *Engine) executeManual(step schema.Step, stepID string, start time.Time)
 	return nil
 }
 
-func (e *Engine) executeAssert(step schema.Step, stepID string, start time.Time) *RunResult {
+func (e *Engine) executeAssert(ctx context.Context, step schema.Step, stepID string, start time.Time) *RunResult {
 	if e.trace != nil {
 		e.trace.EmitStepStart(stepID, "assert", nil)
 	}
@@ -502,7 +503,7 @@ func (e *Engine) executeAssert(step schema.Step, stepID string, start time.Time)
 	return nil
 }
 
-func (e *Engine) executeBranch(step schema.Step, stepID string) *RunResult {
+func (e *Engine) executeBranch(ctx context.Context, step schema.Step, stepID string) *RunResult {
 	for _, br := range step.Branches {
 		matches, err := eval.EvalBool(br.Condition, e.vars)
 		if err != nil {
@@ -512,7 +513,7 @@ func (e *Engine) executeBranch(step schema.Step, stepID string) *RunResult {
 			if e.trace != nil {
 				e.trace.EmitBranchEnter(br.Label, br.Condition)
 			}
-			result := e.executeSteps(br.Steps, false)
+			result := e.executeSteps(ctx, br.Steps, false)
 			if e.trace != nil {
 				e.trace.EmitBranchExit(br.Label)
 			}
@@ -528,7 +529,7 @@ func (e *Engine) executeBranch(step schema.Step, stepID string) *RunResult {
 
 // executeParallel runs parallel branches concurrently with state isolation.
 // Contract conflicts cause serialization (sequential fallback).
-func (e *Engine) executeParallel(step schema.Step, stepID string) *RunResult {
+func (e *Engine) executeParallel(ctx context.Context, step schema.Step, stepID string) *RunResult {
 	if len(step.Branches) < 2 {
 		return &RunResult{Status: "error", Error: fmt.Errorf("step %s: parallel requires at least 2 branches", stepID)}
 	}
@@ -590,7 +591,7 @@ func (e *Engine) executeParallel(step schema.Step, stepID string) *RunResult {
 
 	if hasConflicts {
 		// Serialized execution — run branches sequentially
-		return e.executeParallelSerialized(step, stepID)
+		return e.executeParallelSerialized(ctx, step, stepID)
 	}
 
 	// Concurrent execution — fork state per branch, run in goroutines
@@ -606,7 +607,7 @@ func (e *Engine) executeParallel(step schema.Step, stepID string) *RunResult {
 			forkedVars := e.forkVars()
 			branchEngine := e.forkEngine(forkedVars)
 
-			res := branchEngine.executeSteps(branch.Steps, false)
+			res := branchEngine.executeSteps(ctx, branch.Steps, false)
 			results[idx] = branchResult{
 				index:   idx,
 				label:   branch.Label,
@@ -622,13 +623,13 @@ func (e *Engine) executeParallel(step schema.Step, stepID string) *RunResult {
 }
 
 // executeParallelSerialized runs parallel branches sequentially due to conflicts.
-func (e *Engine) executeParallelSerialized(step schema.Step, stepID string) *RunResult {
+func (e *Engine) executeParallelSerialized(ctx context.Context, step schema.Step, stepID string) *RunResult {
 	results := make([]branchResult, len(step.Branches))
 	for i, br := range step.Branches {
 		forkedVars := e.forkVars()
 		branchEngine := e.forkEngine(forkedVars)
 
-		res := branchEngine.executeSteps(br.Steps, false)
+		res := branchEngine.executeSteps(ctx, br.Steps, false)
 		results[i] = branchResult{
 			index:   i,
 			label:   br.Label,
@@ -759,7 +760,7 @@ func walkBranchContracts(steps []schema.Step, e *Engine, reads, writes *[]string
 // ---------------------------------------------------------------------------
 
 // executeForEach expands a step with a for_each modifier.
-func (e *Engine) executeForEach(step schema.Step, stepID string) *RunResult {
+func (e *Engine) executeForEach(ctx context.Context, step schema.Step, stepID string) *RunResult {
 	fe := step.ForEach
 
 	// Resolve the `over` expression to get the list.
@@ -811,13 +812,13 @@ func (e *Engine) executeForEach(step schema.Step, stepID string) *RunResult {
 	innerStep.ForEach = nil
 
 	if fe.Parallel {
-		return e.executeForEachParallel(innerStep, stepID, fe.As, items)
+		return e.executeForEachParallel(ctx, innerStep, stepID, fe.As, items)
 	}
-	return e.executeForEachSequential(innerStep, stepID, fe.As, items)
+	return e.executeForEachSequential(ctx, innerStep, stepID, fe.As, items)
 }
 
 // executeForEachSequential runs the step once per item, sequentially.
-func (e *Engine) executeForEachSequential(step schema.Step, stepID, asVar string, items []any) *RunResult {
+func (e *Engine) executeForEachSequential(ctx context.Context, step schema.Step, stepID, asVar string, items []any) *RunResult {
 	accumulated := make([]any, 0, len(items))
 
 	for i, item := range items {
@@ -834,7 +835,7 @@ func (e *Engine) executeForEachSequential(step schema.Step, stepID, asVar string
 		e.vars[asVar] = item
 
 		iterID := fmt.Sprintf("%s[%d]", stepID, i)
-		result := e.executeStep(step, iterID)
+		result := e.executeStep(ctx, step, iterID)
 
 		// Collect outputs for accumulation
 		if iterID != "" {
@@ -860,7 +861,7 @@ func (e *Engine) executeForEachSequential(step schema.Step, stepID, asVar string
 }
 
 // executeForEachParallel runs the step once per item, concurrently.
-func (e *Engine) executeForEachParallel(step schema.Step, stepID, asVar string, items []any) *RunResult {
+func (e *Engine) executeForEachParallel(ctx context.Context, step schema.Step, stepID, asVar string, items []any) *RunResult {
 	type iterResult struct {
 		index   int
 		result  *RunResult
@@ -891,7 +892,7 @@ func (e *Engine) executeForEachParallel(step schema.Step, stepID, asVar string, 
 				})
 			}
 
-			res := iterEngine.executeStep(step, iterID)
+			res := iterEngine.executeStep(ctx, step, iterID)
 			var outputs any
 			if val, ok := iterEngine.vars[iterID]; ok {
 				outputs = val
@@ -926,7 +927,7 @@ func (e *Engine) executeForEachParallel(step schema.Step, stepID, asVar string, 
 	return nil
 }
 
-func (e *Engine) executeEnd(step schema.Step, stepID string, start time.Time) *RunResult {
+func (e *Engine) executeEnd(ctx context.Context, step schema.Step, stepID string, start time.Time) *RunResult {
 	if e.trace != nil {
 		e.trace.EmitStepStart(stepID, "end", nil)
 	}
@@ -958,7 +959,7 @@ func (e *Engine) executeEnd(step schema.Step, stepID string, start time.Time) *R
 	}
 }
 
-func (e *Engine) executeExtension(step schema.Step, stepID string, start time.Time) *RunResult {
+func (e *Engine) executeExtension(ctx context.Context, step schema.Step, stepID string, start time.Time) *RunResult {
 	// Extensions are dispatched to external executors — out of scope for Phase 3.
 	// For now, emit a trace event and skip.
 	if e.trace != nil {

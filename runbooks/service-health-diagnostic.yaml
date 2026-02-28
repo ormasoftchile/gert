@@ -1,0 +1,12 @@
+# Stub — service-health-diagnostic runbook (to be implemented in Phase 3)
+apiVersion: kernel/v0
+meta:
+  name: service-health-diagnostic
+  description: "Diagnose service health with tool calls, branching, retry loops"
+  inputs:
+    hostname: { type: string, required: true }
+steps:
+  - type: end
+    outcome:
+      category: no_action
+      code: stub

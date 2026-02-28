@@ -1,0 +1,28 @@
+apiVersion: tool/v0
+meta:
+  name: jq
+  description: JSON processor
+  transport: stdio
+  binary: jq
+contract:
+  effects: []
+  writes: []
+  idempotent: true
+  deterministic: true
+  inputs:
+    filter:
+      type: string
+      required: true
+    input:
+      type: string
+      required: true
+  outputs:
+    result:
+      type: string
+actions:
+  query:
+    description: Apply jq filter to JSON input
+    argv: ["jq", "{{ .filter }}"]
+    extract:
+      result:
+        from: stdout

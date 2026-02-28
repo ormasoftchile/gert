@@ -1,0 +1,46 @@
+apiVersion: tool/v0
+meta:
+  name: kubectl
+  description: Kubernetes CLI
+  transport: stdio
+  binary: kubectl
+contract:
+  effects: [kubernetes]
+  writes: []
+  idempotent: true
+  deterministic: false
+  inputs:
+    resource:
+      type: string
+      required: true
+    namespace:
+      type: string
+      default: default
+  outputs:
+    result:
+      type: string
+actions:
+  get:
+    description: Get a Kubernetes resource
+    argv: ["kubectl", "get", "{{ .resource }}", "-n", "{{ .namespace }}", "-o", "json"]
+    extract:
+      result:
+        from: stdout
+  delete:
+    description: Delete a Kubernetes resource
+    argv: ["kubectl", "delete", "{{ .resource }}", "-n", "{{ .namespace }}"]
+    contract:
+      writes: [pods]
+      idempotent: false
+    extract:
+      result:
+        from: stdout
+  apply:
+    description: Apply a manifest
+    argv: ["kubectl", "apply", "-f", "{{ .resource }}", "-n", "{{ .namespace }}"]
+    contract:
+      writes: [kubernetes]
+      idempotent: true
+    extract:
+      result:
+        from: stdout

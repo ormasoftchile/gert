@@ -1,0 +1,12 @@
+# Stub — multi-endpoint-sweep runbook (to be implemented in Phase 5)
+apiVersion: kernel/v0
+meta:
+  name: multi-endpoint-sweep
+  description: "Parallel health check across multiple endpoints"
+  inputs:
+    endpoints: { type: string, required: true }
+steps:
+  - type: end
+    outcome:
+      category: no_action
+      code: stub

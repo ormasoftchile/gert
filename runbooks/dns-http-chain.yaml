@@ -1,0 +1,12 @@
+# Stub — dns-http-chain runbook (to be implemented in Phase 6)
+apiVersion: kernel/v0
+meta:
+  name: dns-http-chain
+  description: "DNS + HTTP chain diagnostic with variable threading"
+  inputs:
+    hostname: { type: string, required: true }
+steps:
+  - type: end
+    outcome:
+      category: no_action
+      code: stub

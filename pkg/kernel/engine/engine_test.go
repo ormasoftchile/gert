@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestEngine_SimpleEndStep(t *testing.T) {
 		Trace: tw,
 	})
 
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, want completed", result.Status)
 	}
@@ -67,8 +68,8 @@ func TestEngine_AssertPass(t *testing.T) {
 	rb := &schema.Runbook{
 		APIVersion: "kernel/v0",
 		Meta: schema.Meta{
-			Name:    "test",
-			Inputs:  map[string]contract.ParamDef{"status": {Type: "string"}},
+			Name:   "test",
+			Inputs: map[string]contract.ParamDef{"status": {Type: "string"}},
 		},
 		Steps: []schema.Step{
 			{
@@ -96,7 +97,7 @@ func TestEngine_AssertPass(t *testing.T) {
 		Vars:  map[string]string{"status": "200"},
 	})
 
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, error = %v", result.Status, result.Error)
 	}
@@ -130,7 +131,7 @@ func TestEngine_AssertFail_Halts(t *testing.T) {
 		Vars:  map[string]string{"status": "503"},
 	})
 
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "failed" {
 		t.Errorf("status = %q, want failed", result.Status)
 	}
@@ -165,7 +166,7 @@ func TestEngine_AssertFail_ContinueOnFail(t *testing.T) {
 		Vars:  map[string]string{"status": "503"},
 	})
 
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, want completed (continue_on_fail)", result.Status)
 	}
@@ -203,14 +204,14 @@ func TestEngine_BranchExecution(t *testing.T) {
 
 	// Test healthy branch
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real", Vars: map[string]string{"status": "200"}})
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Outcome.Code != "healthy" {
 		t.Errorf("expected healthy branch, got %q", result.Outcome.Code)
 	}
 
 	// Test default branch
 	eng2 := New(rb, RunConfig{RunID: "r2", Mode: "real", Vars: map[string]string{"status": "503"}})
-	result2 := eng2.Run()
+	result2 := eng2.Run(context.Background())
 	if result2.Outcome.Code != "broken" {
 		t.Errorf("expected default branch, got %q", result2.Outcome.Code)
 	}
@@ -241,7 +242,7 @@ func TestEngine_WhenGuard(t *testing.T) {
 
 	// Guard is false → step skipped, execution continues to end
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real", Vars: map[string]string{"run": "no"}})
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, want completed", result.Status)
 	}
@@ -273,7 +274,7 @@ func TestEngine_Constants(t *testing.T) {
 	}
 
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real"})
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, error = %v", result.Status, result.Error)
 	}
@@ -292,8 +293,8 @@ func TestEngine_GovernanceDeny(t *testing.T) {
 		},
 		Steps: []schema.Step{
 			{
-				ID:   "dangerous",
-				Type: schema.StepManual,
+				ID:           "dangerous",
+				Type:         schema.StepManual,
 				Instructions: "Do something dangerous",
 				// Manual defaults: side_effects=true, deterministic=false, idempotent=false → critical risk
 			},
@@ -308,7 +309,7 @@ func TestEngine_GovernanceDeny(t *testing.T) {
 	}
 
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real"})
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "failed" {
 		t.Errorf("status = %q, want failed (governance deny)", result.Status)
 	}
@@ -340,7 +341,7 @@ func TestEngine_DryRun(t *testing.T) {
 		Mode:   "dry-run",
 		Stdout: &out,
 	})
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, error = %v", result.Status, result.Error)
 	}
@@ -363,7 +364,7 @@ func TestEngine_OutcomeMeta_TemplateResolution(t *testing.T) {
 	}
 
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real", Vars: map[string]string{"hostname": "srv1"}})
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Outcome.Meta["host"] != "srv1" {
 		t.Errorf("meta.host = %v, want srv1", result.Outcome.Meta["host"])
 	}
@@ -398,7 +399,7 @@ func TestEngine_InputDefaults(t *testing.T) {
 	}
 
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real"})
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, error = %v", result.Status, result.Error)
 	}
@@ -456,7 +457,7 @@ func TestEngine_ParallelExecution(t *testing.T) {
 	var traceBuf bytes.Buffer
 	tw := trace.NewWriter(&traceBuf, "r1")
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real", Trace: tw})
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, error = %v", result.Status, result.Error)
 	}
@@ -519,7 +520,7 @@ func TestEngine_ParallelBranchFailure(t *testing.T) {
 	}
 
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real"})
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "failed" {
 		t.Errorf("status = %q, want failed", result.Status)
 	}
@@ -582,7 +583,7 @@ func TestEngine_ParallelConflictSerialization(t *testing.T) {
 	var traceBuf bytes.Buffer
 	tw := trace.NewWriter(&traceBuf, "r1")
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real", Trace: tw})
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, error = %v", result.Status, result.Error)
 	}
@@ -621,7 +622,7 @@ func TestEngine_ForEachSequential(t *testing.T) {
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real"})
 	eng.vars["items"] = []any{"a", "b", "c"}
 
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, error = %v", result.Status, result.Error)
 	}
@@ -665,7 +666,7 @@ func TestEngine_ForEachParallel(t *testing.T) {
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real"})
 	eng.vars["items"] = []any{"x", "y", "z"}
 
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, error = %v", result.Status, result.Error)
 	}
@@ -710,7 +711,7 @@ func TestEngine_NextBackwardMaxEnforced(t *testing.T) {
 	}
 
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real"})
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, error = %v", result.Status, result.Error)
 	}
@@ -759,7 +760,7 @@ func TestEngine_NextForwardJump(t *testing.T) {
 	}
 
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real"})
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, error = %v", result.Status, result.Error)
 	}
@@ -799,7 +800,7 @@ func TestEngine_ForEachWithTrace(t *testing.T) {
 	eng := New(rb, RunConfig{RunID: "r1", Mode: "real", Trace: tw})
 	eng.vars["nums"] = []any{"1", "2"}
 
-	result := eng.Run()
+	result := eng.Run(context.Background())
 	if result.Status != "completed" {
 		t.Errorf("status = %q, error = %v", result.Status, result.Error)
 	}

@@ -1,6 +1,7 @@
 package replay
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ormasoftchile/gert/pkg/kernel/schema"
@@ -52,7 +53,7 @@ func TestReplayExecutor_Execute(t *testing.T) {
 	td := &schema.ToolDefinition{Meta: schema.ToolMeta{Name: "my-tool"}}
 
 	// First call
-	r1, err := re.Execute(td, "check", nil, nil)
+	r1, err := re.Execute(context.Background(), td, "check", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +65,7 @@ func TestReplayExecutor_Execute(t *testing.T) {
 	}
 
 	// Second call — consumes next response
-	r2, err := re.Execute(td, "check", nil, nil)
+	r2, err := re.Execute(context.Background(), td, "check", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +74,7 @@ func TestReplayExecutor_Execute(t *testing.T) {
 	}
 
 	// Third call — exhausted
-	_, err = re.Execute(td, "check", nil, nil)
+	_, err = re.Execute(context.Background(), td, "check", nil, nil)
 	if err == nil {
 		t.Error("expected exhausted error")
 	}
@@ -86,7 +87,7 @@ func TestReplayExecutor_NoMatch(t *testing.T) {
 	re := NewReplayExecutor(s)
 	td := &schema.ToolDefinition{Meta: schema.ToolMeta{Name: "unknown"}}
 
-	_, err := re.Execute(td, "action", nil, nil)
+	_, err := re.Execute(context.Background(), td, "action", nil, nil)
 	if err == nil {
 		t.Error("expected no-match error")
 	}

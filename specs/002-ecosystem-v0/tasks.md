@@ -19,12 +19,12 @@
 
 **Purpose**: Project structure, shared infrastructure, dependency wiring
 
-- [ ] T001 Create `pkg/ecosystem/` directory structure per plan.md in pkg/ecosystem/tui/, pkg/ecosystem/mcp/, pkg/ecosystem/approval/stdin/, pkg/ecosystem/recorder/
-- [ ] T002 Create `cmd/gert/` directory with Cobra CLI wiring (copy from cmd/gert-kernel/, then extend) in cmd/gert/main.go
-- [ ] T003 [P] Create `cmd/gert-tui/` entrypoint with Bubble Tea bootstrap in cmd/gert-tui/main.go
-- [ ] T004 [P] Create `cmd/gert-mcp/` entrypoint with MCP server bootstrap in cmd/gert-mcp/main.go
-- [ ] T005 [P] Create `tools/` directory with 5 tool pack YAML stubs in tools/curl.tool.yaml, tools/kubectl.tool.yaml, tools/az.tool.yaml, tools/ping.tool.yaml, tools/jq.tool.yaml
-- [ ] T006 [P] Create `runbooks/` directory with 5 runbook YAML stubs in runbooks/service-health-diagnostic.yaml, runbooks/multi-endpoint-sweep.yaml, runbooks/k8s-pod-restart.yaml, runbooks/dns-http-chain.yaml, runbooks/incident-triage.yaml
+- [X] T001 Create `pkg/ecosystem/` directory structure per plan.md in pkg/ecosystem/tui/, pkg/ecosystem/mcp/, pkg/ecosystem/approval/stdin/, pkg/ecosystem/recorder/
+- [X] T002 Create `cmd/gert/` directory with Cobra CLI wiring (copy from cmd/gert-kernel/, then extend) in cmd/gert/main.go
+- [X] T003 [P] Create `cmd/gert-tui/` entrypoint with Bubble Tea bootstrap in cmd/gert-tui/main.go
+- [X] T004 [P] Create `cmd/gert-mcp/` entrypoint with MCP server bootstrap in cmd/gert-mcp/main.go
+- [X] T005 [P] Create `tools/` directory with 5 tool pack YAML stubs in tools/curl.tool.yaml, tools/kubectl.tool.yaml, tools/az.tool.yaml, tools/ping.tool.yaml, tools/jq.tool.yaml
+- [X] T006 [P] Create `runbooks/` directory with 5 runbook YAML stubs in runbooks/service-health-diagnostic.yaml, runbooks/multi-endpoint-sweep.yaml, runbooks/k8s-pod-restart.yaml, runbooks/dns-http-chain.yaml, runbooks/incident-triage.yaml
 
 ---
 
@@ -34,13 +34,13 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T007 Add `context.Context` parameter to `ToolExecutor.Execute()` interface and update `defaultExecutor` in pkg/kernel/engine/engine.go
-- [ ] T008 Add `context.Context` parameter to `Engine.Run()` and thread through `executeSteps()` → `executeStep()` in pkg/kernel/engine/engine.go
-- [ ] T009 Update all engine tests to pass `context.Background()` to `Run()` in pkg/kernel/engine/engine_test.go
-- [ ] T010 Update `cmd/gert/main.go` to pass context to engine in cmd/gert/main.go
-- [ ] T011 [P] Update `pkg/kernel/testing/runner.go` to pass context through replay execution in pkg/kernel/testing/runner.go
-- [ ] T012 [P] Update `pkg/kernel/testing/integration_test.go` to pass context in pkg/kernel/testing/integration_test.go
-- [ ] T013 Verify all 72 existing tests pass with context threading — `go test ./pkg/kernel/... -count=1`
+- [X] T007 Add `context.Context` parameter to `ToolExecutor.Execute()` interface and update `defaultExecutor` in pkg/kernel/engine/engine.go
+- [X] T008 Add `context.Context` parameter to `Engine.Run()` and thread through `executeSteps()` → `executeStep()` in pkg/kernel/engine/engine.go
+- [X] T009 Update all engine tests to pass `context.Background()` to `Run()` in pkg/kernel/engine/engine_test.go
+- [X] T010 Update `cmd/gert/main.go` to pass context to engine in cmd/gert/main.go
+- [X] T011 [P] Update `pkg/kernel/testing/runner.go` to pass context through replay execution in pkg/kernel/testing/runner.go
+- [X] T012 [P] Update `pkg/kernel/testing/integration_test.go` to pass context in pkg/kernel/testing/integration_test.go
+- [X] T013 Verify all 72 existing tests pass with context threading — `go test ./pkg/kernel/... -count=1`
 
 **Checkpoint**: Foundation ready — all existing tests pass with context.Context. User story work can begin.
 
@@ -363,3 +363,4 @@
 | Polish tasks | 22 |
 | Parallelizable tasks | 82 |
 | MVP scope (US1 only) | 35 tasks (Setup + Foundation + US1) |
+

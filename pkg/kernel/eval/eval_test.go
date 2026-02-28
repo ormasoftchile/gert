@@ -95,8 +95,8 @@ func TestEvalBool(t *testing.T) {
 		vars map[string]any
 		want bool
 	}{
-		{"", nil, true},                                     // empty = true
-		{"default", nil, true},                              // default branch
+		{"", nil, true},        // empty = true
+		{"default", nil, true}, // default branch
 		{`{{ eq .x "yes" }}`, map[string]any{"x": "yes"}, true},
 		{`{{ eq .x "yes" }}`, map[string]any{"x": "no"}, false},
 		{`{{ ne .x "ok" }}`, map[string]any{"x": "err"}, true},

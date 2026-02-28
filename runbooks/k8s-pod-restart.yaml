@@ -1,0 +1,13 @@
+# Stub — k8s-pod-restart runbook (to be implemented in Phase 4)
+apiVersion: kernel/v0
+meta:
+  name: k8s-pod-restart
+  description: "Kubernetes pod restart with governance approval gate"
+  inputs:
+    pod: { type: string, required: true }
+    namespace: { type: string, required: true }
+steps:
+  - type: end
+    outcome:
+      category: no_action
+      code: stub

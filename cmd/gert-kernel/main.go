@@ -8,6 +8,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -217,7 +218,7 @@ func runExec(cmd *cobra.Command, args []string) error {
 	}
 
 	eng := engine.New(rb, cfg)
-	result := eng.Run()
+	result := eng.Run(context.Background())
 
 	if result.Outcome != nil {
 		fmt.Printf("\n✓ Outcome: %s (%s)\n", result.Outcome.Category, result.Outcome.Code)
@@ -397,3 +398,4 @@ func printTestOutput(output *ktesting.TestOutput) {
 	fmt.Printf("\n  %d passed, %d failed, %d skipped, %d errors (total: %d)\n",
 		output.Summary.Passed, output.Summary.Failed, output.Summary.Skipped, output.Summary.Errors, output.Summary.Total)
 }
+

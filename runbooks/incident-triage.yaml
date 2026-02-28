@@ -1,0 +1,12 @@
+# Stub — incident-triage runbook (to be implemented in Phase 11)
+apiVersion: kernel/v0
+meta:
+  name: incident-triage
+  description: "Multi-branch incident triage with manual investigation"
+  inputs:
+    incident_id: { type: string, required: true }
+steps:
+  - type: end
+    outcome:
+      category: no_action
+      code: stub

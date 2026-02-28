@@ -14,20 +14,20 @@ import (
 type EventType string
 
 const (
-	EventRunStart          EventType = "run_start"
-	EventRunComplete       EventType = "run_complete"
-	EventStepStart         EventType = "step_start"
-	EventStepComplete      EventType = "step_complete"
-	EventBranchEnter       EventType = "branch_enter"
-	EventBranchExit        EventType = "branch_exit"
-	EventParallelFork      EventType = "parallel_fork"
-	EventParallelMerge     EventType = "parallel_merge"
-	EventOutcomeResolved   EventType = "outcome_resolved"
-	EventContractEvaluated EventType = "contract_evaluated"
+	EventRunStart           EventType = "run_start"
+	EventRunComplete        EventType = "run_complete"
+	EventStepStart          EventType = "step_start"
+	EventStepComplete       EventType = "step_complete"
+	EventBranchEnter        EventType = "branch_enter"
+	EventBranchExit         EventType = "branch_exit"
+	EventParallelFork       EventType = "parallel_fork"
+	EventParallelMerge      EventType = "parallel_merge"
+	EventOutcomeResolved    EventType = "outcome_resolved"
+	EventContractEvaluated  EventType = "contract_evaluated"
 	EventGovernanceDecision EventType = "governance_decision"
-	EventRedactionApplied  EventType = "redaction_applied"
-	EventForEachStart      EventType = "for_each_start"
-	EventForEachItem       EventType = "for_each_item"
+	EventRedactionApplied   EventType = "redaction_applied"
+	EventForEachStart       EventType = "for_each_start"
+	EventForEachItem        EventType = "for_each_item"
 )
 
 // StepStatus is the execution status of a step.
@@ -50,16 +50,16 @@ type Event struct {
 
 // Failure describes why a step failed or errored.
 type Failure struct {
-	Kind    string `json:"kind"`    // exit_code, assertion, denied, contract_violation, timeout, ...
+	Kind    string `json:"kind"` // exit_code, assertion, denied, contract_violation, timeout, ...
 	Message string `json:"message"`
 }
 
 // Writer writes trace events to an append-only JSONL stream.
 type Writer struct {
-	mu     sync.Mutex
-	w      io.Writer
-	runID  string
-	enc    *json.Encoder
+	mu    sync.Mutex
+	w     io.Writer
+	runID string
+	enc   *json.Encoder
 }
 
 // NewWriter creates a trace writer that writes to the given io.Writer.
