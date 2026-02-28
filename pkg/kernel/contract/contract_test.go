@@ -240,3 +240,55 @@ func TestManualDefaults(t *testing.T) {
 		t.Error("manual: idempotent should be false")
 	}
 }
+
+// T014: Effects field accepted by contract
+func TestRisk_WithEffects(t *testing.T) {
+	tests := []struct {
+		name string
+		c    Contract
+		want RiskLevel
+	}{
+		{
+			name: "effects but no writes → low",
+			c:    Contract{Effects: []string{"network"}, Writes: []string{}},
+			want: RiskLow,
+		},
+		{
+			name: "effects + writes + idempotent → medium",
+			c:    Contract{Effects: []string{"kubernetes"}, Writes: []string{"pods"}, Idempotent: boolPtr(true)},
+			want: RiskMedium,
+		},
+		{
+			name: "effects + writes + not idempotent + deterministic → high",
+			c:    Contract{Effects: []string{"kubernetes"}, Writes: []string{"pods"}, Idempotent: boolPtr(false), Deterministic: boolPtr(true)},
+			want: RiskHigh,
+		},
+		{
+			name: "effects + writes + not idempotent + not deterministic → critical",
+			c:    Contract{Effects: []string{"kubernetes"}, Writes: []string{"pods"}, Idempotent: boolPtr(false), Deterministic: boolPtr(false)},
+			want: RiskCritical,
+		},
+		{
+			name: "no effects, no writes → low",
+			c:    Contract{Effects: []string{}},
+			want: RiskLow,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.c.Risk()
+			if got != tt.want {
+				t.Errorf("Risk() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolved_IncludesEffects(t *testing.T) {
+	c := Contract{Effects: []string{"network"}}
+	r := c.Resolved()
+	if len(r.Effects) != 1 || r.Effects[0] != "network" {
+		t.Errorf("resolved effects = %v, want [network]", r.Effects)
+	}
+}

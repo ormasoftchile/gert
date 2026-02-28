@@ -34,6 +34,7 @@ type Meta struct {
 	Inputs      map[string]contract.ParamDef `yaml:"inputs,omitempty"    json:"inputs,omitempty"`
 	Constants   map[string]any               `yaml:"constants,omitempty" json:"constants,omitempty"`
 	Governance  *GovernancePolicy            `yaml:"governance,omitempty" json:"governance,omitempty"`
+	Secrets     []SecretRef                  `yaml:"secrets,omitempty"   json:"secrets,omitempty"`
 	Extensions  map[string]any               `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 }
 
@@ -48,11 +49,13 @@ type GovernancePolicy struct {
 
 // GovernanceRule is a single governance policy rule.
 type GovernanceRule struct {
-	Risk         string              `yaml:"risk,omitempty"     json:"risk,omitempty"`
-	Contract     *GovernanceContract `yaml:"contract,omitempty" json:"contract,omitempty"`
-	Default      string              `yaml:"default,omitempty"  json:"default,omitempty"`
-	Action       string              `yaml:"action,omitempty"   json:"action,omitempty"`
-	MinApprovers int                 `yaml:"min_approvers,omitempty" json:"min_approvers,omitempty"`
+	Risk               string              `yaml:"risk,omitempty"     json:"risk,omitempty"`
+	Effects            []string            `yaml:"effects,omitempty"  json:"effects,omitempty"`
+	Contract           *GovernanceContract `yaml:"contract,omitempty" json:"contract,omitempty"`
+	Default            string              `yaml:"default,omitempty"  json:"default,omitempty"`
+	Action             string              `yaml:"action,omitempty"   json:"action,omitempty"`
+	MinApprovers       int                 `yaml:"min_approvers,omitempty" json:"min_approvers,omitempty"`
+	ContractViolations string              `yaml:"contract_violations,omitempty" json:"contract_violations,omitempty"` // "deny" to promote violations to errors
 }
 
 // GovernanceContract matches steps by contract properties.
@@ -219,4 +222,14 @@ type EvidenceRequirement struct {
 	Kind  string   `yaml:"kind"             json:"kind"` // text, checklist, attachment
 	Name  string   `yaml:"name"             json:"name"`
 	Items []string `yaml:"items,omitempty"  json:"items,omitempty"`
+}
+// ---------------------------------------------------------------------------
+// Secrets
+// ---------------------------------------------------------------------------
+
+// SecretRef declares a required environment variable for a tool or runbook.
+type SecretRef struct {
+	Env         string `yaml:\"env\"              json:\"env\"`
+	Description string `yaml:\"description,omitempty\" json:\"description,omitempty\"`
+	Required    bool   `yaml:\"required,omitempty\"    json:\"required,omitempty\"`
 }

@@ -163,6 +163,31 @@ func validateDomain(rb *schema.Runbook, baseDir string) []*ValidationError {
 	return errs
 }
 
+// validateToolEffects checks effects/side_effects consistency on a tool definition.
+func validateToolEffects(td *schema.ToolDefinition) []*ValidationError {
+	var errs []*ValidationError
+	c := &td.Contract
+
+	// Error if both side_effects and effects declared
+	if c.SideEffects != nil && len(c.Effects) > 0 {
+		errs = append(errs, errorf("domain", "contract", "cannot declare both 'side_effects' and 'effects' — use 'effects' only"))
+	}
+
+	// Warning if side_effects used without effects (deprecated)
+	if c.SideEffects != nil && len(c.Effects) == 0 {
+		errs = append(errs, warningf("domain", "contract.side_effects", "'side_effects' is deprecated — use 'effects: [...]' instead"))
+	}
+
+	// Validate secrets
+	for i, secret := range td.Meta.Secrets {
+		if secret.Env == "" {
+			errs = append(errs, errorf("domain", fmt.Sprintf("meta.secrets[%d].env", i), "secret env var name is required"))
+		}
+	}
+
+	return errs
+}
+
 // ---------------------------------------------------------------------------
 // Type validation
 // ---------------------------------------------------------------------------
@@ -814,6 +839,9 @@ func validateToolDomain(td *schema.ToolDefinition) []*ValidationError {
 	if len(td.Actions) == 0 {
 		errs = append(errs, errorf("domain", "actions", "at least one action is required"))
 	}
+
+	// Effects / side_effects consistency
+	errs = append(errs, validateToolEffects(td)...)
 
 	// Validate platform constraint
 	if len(td.Meta.Platform) > 0 {

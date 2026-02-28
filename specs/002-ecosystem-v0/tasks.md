@@ -54,26 +54,26 @@
 
 ### Tests for US1
 
-- [ ] T014 [P] [US1] Test: effects field accepted by contract in pkg/kernel/contract/contract_test.go
-- [ ] T015 [P] [US1] Test: side_effects deprecated — warning when used alone, error when both declared in pkg/kernel/validate/validate_test.go
-- [ ] T016 [P] [US1] Test: governance matches on effects + writes in pkg/kernel/governance/governance_test.go
-- [ ] T017 [P] [US1] Test: derived risk from effects + writes classification in pkg/kernel/contract/contract_test.go
-- [ ] T018 [P] [US1] Test: secrets block validation — warning on missing env var in pkg/kernel/validate/validate_test.go
-- [ ] T019 [P] [US1] Test: secrets auto-redaction in trace output in pkg/kernel/trace/trace_test.go
-- [ ] T020 [P] [US1] Testdata fixture: tool with effects field only in pkg/kernel/validate/testdata/effects_valid.yaml
-- [ ] T021 [P] [US1] Testdata fixture: tool with both side_effects and effects in pkg/kernel/validate/testdata/effects_conflict.yaml
-- [ ] T022 [P] [US1] Testdata fixture: tool with side_effects only (deprecated) in pkg/kernel/validate/testdata/side_effects_deprecated.yaml
+- [X] T014 [P] [US1] Test: effects field accepted by contract in pkg/kernel/contract/contract_test.go
+- [X] T015 [P] [US1] Test: side_effects deprecated — warning when used alone, error when both declared in pkg/kernel/validate/validate_test.go
+- [X] T016 [P] [US1] Test: governance matches on effects + writes in pkg/kernel/governance/governance_test.go
+- [X] T017 [P] [US1] Test: derived risk from effects + writes classification in pkg/kernel/contract/contract_test.go
+- [X] T018 [P] [US1] Test: secrets block validation — warning on missing env var in pkg/kernel/validate/validate_test.go
+- [X] T019 [P] [US1] Test: secrets auto-redaction in trace output in pkg/kernel/trace/trace_test.go
+- [X] T020 [P] [US1] Testdata fixture: tool with effects field only in pkg/kernel/validate/testdata/effects_valid.yaml
+- [X] T021 [P] [US1] Testdata fixture: tool with both side_effects and effects in pkg/kernel/validate/testdata/effects_conflict.yaml
+- [X] T022 [P] [US1] Testdata fixture: tool with side_effects only (deprecated) in pkg/kernel/validate/testdata/side_effects_deprecated.yaml
 
 ### Implementation for US1
 
-- [ ] T023 [US1] Add `Effects []string` field to `contract.Contract` struct in pkg/kernel/contract/contract.go
-- [ ] T024 [US1] Update `Risk()` method to use effects + writes instead of side_effects in pkg/kernel/contract/contract.go
-- [ ] T025 [US1] Add `Effects` matching to governance rule evaluation in pkg/kernel/governance/governance.go
-- [ ] T026 [US1] Add `SecretRef` struct to schema types in pkg/kernel/schema/types.go
-- [ ] T027 [US1] Add `Secrets []SecretRef` to `ToolMeta` and `Meta` in pkg/kernel/schema/types.go and pkg/kernel/schema/tool.go
-- [ ] T028 [US1] Add validation rule: error if both `side_effects` and `effects` declared in pkg/kernel/validate/domain.go
-- [ ] T029 [US1] Add validation rule: deprecation warning on `side_effects` usage in pkg/kernel/validate/domain.go
-- [ ] T030 [US1] Add validation rule: secrets env var presence check (warning) in pkg/kernel/validate/domain.go
+- [X] T023 [US1] Add `Effects []string` field to `contract.Contract` struct in pkg/kernel/contract/contract.go
+- [X] T024 [US1] Update `Risk()` method to use effects + writes instead of side_effects in pkg/kernel/contract/contract.go
+- [X] T025 [US1] Add `Effects` matching to governance rule evaluation in pkg/kernel/governance/governance.go
+- [X] T026 [US1] Add `SecretRef` struct to schema types in pkg/kernel/schema/types.go
+- [X] T027 [US1] Add `Secrets []SecretRef` to `ToolMeta` and `Meta` in pkg/kernel/schema/types.go and pkg/kernel/schema/tool.go
+- [X] T028 [US1] Add validation rule: error if both `side_effects` and `effects` declared in pkg/kernel/validate/domain.go
+- [X] T029 [US1] Add validation rule: deprecation warning on `side_effects` usage in pkg/kernel/validate/domain.go
+- [X] T030 [US1] Add validation rule: secrets env var presence check (warning) in pkg/kernel/validate/domain.go
 - [ ] T031 [US1] Add secrets redaction to trace writer output in pkg/kernel/trace/trace.go
 - [ ] T032 [US1] Update dry-run mode to show effects + secrets info in pkg/kernel/engine/engine.go
 - [ ] T033 Write/update 5 tool pack YAML files with effects taxonomy (update existing curl/ping, create new kubectl/az/jq) in tools/curl.tool.yaml, tools/kubectl.tool.yaml, tools/az.tool.yaml, tools/ping.tool.yaml, tools/jq.tool.yaml
@@ -363,4 +363,5 @@
 | Polish tasks | 22 |
 | Parallelizable tasks | 82 |
 | MVP scope (US1 only) | 35 tasks (Setup + Foundation + US1) |
+
 

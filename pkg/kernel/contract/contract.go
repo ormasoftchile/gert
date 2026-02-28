@@ -6,7 +6,8 @@ package contract
 type Contract struct {
 	Inputs        map[string]ParamDef `yaml:"inputs,omitempty"      json:"inputs,omitempty"`
 	Outputs       map[string]ParamDef `yaml:"outputs,omitempty"     json:"outputs,omitempty"`
-	SideEffects   *bool               `yaml:"side_effects,omitempty" json:"side_effects,omitempty"`
+	Effects       []string            `yaml:"effects,omitempty"     json:"effects,omitempty"`
+	SideEffects   *bool               `yaml:"side_effects,omitempty" json:"side_effects,omitempty"` // DEPRECATED: use effects
 	Deterministic *bool               `yaml:"deterministic,omitempty" json:"deterministic,omitempty"`
 	Idempotent    *bool               `yaml:"idempotent,omitempty"  json:"idempotent,omitempty"`
 	Reads         []string            `yaml:"reads,omitempty"       json:"reads,omitempty"`
@@ -32,7 +33,30 @@ const (
 )
 
 // Risk derives the risk level from a resolved contract.
+// Uses effects + writes taxonomy. Falls back to legacy side_effects for migration.
 func (c *Contract) Risk() RiskLevel {
+	hasEffects := len(c.Effects) > 0
+	hasWrites := len(c.Writes) > 0
+
+	// If effects field is present, use the new taxonomy
+	if hasEffects || c.Effects != nil {
+		if !hasEffects && !hasWrites {
+			return RiskLow
+		}
+		if hasEffects && !hasWrites {
+			return RiskLow // read-only effects (e.g., network GET)
+		}
+		// Effects + writes
+		if c.getBool(c.Idempotent, false) {
+			return RiskMedium
+		}
+		if c.getBool(c.Deterministic, false) {
+			return RiskHigh
+		}
+		return RiskCritical
+	}
+
+	// Legacy fallback: use side_effects boolean
 	if !c.getBool(c.SideEffects, true) {
 		return RiskLow
 	}
@@ -52,6 +76,8 @@ func (c *Contract) Resolved() Contract {
 	out.SideEffects = boolPtr(c.getBool(c.SideEffects, true))
 	out.Deterministic = boolPtr(c.getBool(c.Deterministic, false))
 	out.Idempotent = boolPtr(c.getBool(c.Idempotent, false))
+	// Only default Effects to empty if it was explicitly set (not nil)
+	// Nil Effects means legacy contract — don't touch it
 	if out.Reads == nil {
 		out.Reads = []string{}
 	}

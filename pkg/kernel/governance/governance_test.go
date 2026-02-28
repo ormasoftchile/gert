@@ -127,3 +127,46 @@ func TestMostRestrictive(t *testing.T) {
 		t.Error("deny > allow")
 	}
 }
+
+// T016: Governance matches on effects + writes
+func TestEvaluate_EffectsBased(t *testing.T) {
+	policy := &schema.GovernancePolicy{
+		Rules: []schema.GovernanceRule{
+			{Effects: []string{"kubernetes"}, Contract: &schema.GovernanceContract{Writes: []string{"production"}}, Action: "require-approval", MinApprovers: 2},
+			{Effects: []string{"network"}, Action: "allow"},
+			{Default: "allow"},
+		},
+	}
+
+	// kubernetes + production writes → require-approval
+	c1 := &contract.Contract{
+		Effects: []string{"kubernetes"},
+		Writes:  []string{"production"},
+	}
+	d1 := Evaluate(c1, policy)
+	if d1.Action != schema.DecisionRequireApproval {
+		t.Errorf("kubernetes+production should require approval, got %q", d1.Action)
+	}
+	if d1.MinApprovers != 2 {
+		t.Errorf("min_approvers = %d, want 2", d1.MinApprovers)
+	}
+
+	// network effects only → allow
+	c2 := &contract.Contract{
+		Effects: []string{"network"},
+	}
+	d2 := Evaluate(c2, policy)
+	if d2.Action != schema.DecisionAllow {
+		t.Errorf("network should allow, got %q", d2.Action)
+	}
+
+	// kubernetes but no production writes → default allow (doesn't match first rule)
+	c3 := &contract.Contract{
+		Effects: []string{"kubernetes"},
+		Writes:  []string{"staging"},
+	}
+	d3 := Evaluate(c3, policy)
+	if d3.Action != schema.DecisionAllow {
+		t.Errorf("kubernetes+staging should default allow, got %q", d3.Action)
+	}
+}

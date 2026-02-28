@@ -84,6 +84,20 @@ func ruleMatches(rule schema.GovernanceRule, c *contract.Contract, risk contract
 		return false
 	}
 
+	// Effects-based matching (new taxonomy)
+	if len(rule.Effects) > 0 {
+		if !hasAny(c.Effects, rule.Effects) {
+			return false
+		}
+		// If rule also specifies writes, both must match
+		if rule.Contract != nil && len(rule.Contract.Writes) > 0 {
+			if !hasAny(c.Writes, rule.Contract.Writes) {
+				return false
+			}
+		}
+		return true
+	}
+
 	// Contract-based matching (writes/reads)
 	if rule.Contract != nil {
 		return contractMatches(rule.Contract, c)

@@ -21,11 +21,12 @@ type ToolDefinition struct {
 
 // ToolMeta describes a tool's identity and transport.
 type ToolMeta struct {
-	Name        string   `yaml:"name"        json:"name"`
-	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
-	Transport   string   `yaml:"transport,omitempty"    json:"transport,omitempty"` // stdio, jsonrpc, mcp
-	Binary      string   `yaml:"binary,omitempty"       json:"binary,omitempty"`
-	Platform    []string `yaml:"platform,omitempty"     json:"platform,omitempty"` // e.g. ["linux","darwin"] or ["windows"]
+	Name        string      `yaml:"name"        json:"name"`
+	Description string      `yaml:"description,omitempty" json:"description,omitempty"`
+	Transport   string      `yaml:"transport,omitempty"    json:"transport,omitempty"` // stdio, jsonrpc, mcp
+	Binary      string      `yaml:"binary,omitempty"       json:"binary,omitempty"`
+	Platform    []string    `yaml:"platform,omitempty"     json:"platform,omitempty"`
+	Secrets     []SecretRef `yaml:"secrets,omitempty"      json:"secrets,omitempty"`
 }
 
 // ToolAction is one named action within a tool definition.

@@ -157,3 +157,52 @@ func searchString(s, sub string) bool {
 	}
 	return false
 }
+
+// T015: Effects/side_effects validation
+func TestValidateToolFile_EffectsValid(t *testing.T) {
+	td, errs := ValidateToolFile(testdataPath("effects_valid.yaml"))
+	errors := filterErrors(errs)
+	if len(errors) > 0 {
+		for _, e := range errors {
+			t.Errorf("unexpected error: %s", e)
+		}
+	}
+	if td == nil {
+		t.Fatal("expected tool definition")
+	}
+	if len(td.Contract.Effects) != 1 || td.Contract.Effects[0] != "network" {
+		t.Errorf("effects = %v, want [network]", td.Contract.Effects)
+	}
+}
+
+func TestValidateToolFile_EffectsConflict(t *testing.T) {
+	_, errs := ValidateToolFile(testdataPath("effects_conflict.yaml"))
+	errors := filterErrors(errs)
+	if !containsMessage(errors, "cannot declare both") {
+		t.Error("expected error for effects + side_effects conflict")
+	}
+}
+
+func TestValidateToolFile_SideEffectsDeprecated(t *testing.T) {
+	_, errs := ValidateToolFile(testdataPath("side_effects_deprecated.yaml"))
+	// Should not error, but should warn
+	errors := filterErrors(errs)
+	if len(errors) > 0 {
+		t.Errorf("unexpected error for deprecated side_effects: %v", errors)
+	}
+	// Check for deprecation warning
+	warnings := filterWarnings(errs)
+	if !containsMessage(warnings, "deprecated") {
+		t.Error("expected deprecation warning for side_effects")
+	}
+}
+
+func filterWarnings(errs []*ValidationError) []*ValidationError {
+	var out []*ValidationError
+	for _, e := range errs {
+		if e.Severity == "warning" {
+			out = append(out, e)
+		}
+	}
+	return out
+}
