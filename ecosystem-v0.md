@@ -226,7 +226,7 @@ governance:
 | Effects + writes + not idempotent + deterministic | High |
 | Effects + writes + not idempotent + not deterministic | Critical |
 
-**Important:** Derived risk is **informational only**. It provides a default classification for runbooks without explicit governance rules. **Enforcement is always policy-driven** via `governance.rules`. Organizations should not rely on derived risk for production governance — write explicit rules that match on `effects` and `writes` for their specific resources and environments.
+**Important:** Derived risk is **informational only** — a heuristic for runbooks without explicit governance rules. **Derived risk MUST NOT be used as the sole basis for production governance decisions.** Organizations must write explicit `governance.rules` matching their specific `effects` and `writes` for any environment where governance matters.
 
 ### Migration
 
@@ -560,9 +560,14 @@ Kernel                          Extension Runner (stdio)
 
 **Trust boundary:** Extension runners are **trusted executables**. gert enforces contracts at the interface level (inputs/outputs/governance) but **cannot prevent undeclared side effects inside runners**. A runner could make network calls, write files, or leak secrets without gert's knowledge. Governance must treat extension runners as **privileged code** — the same trust level as tool binaries. Auditors should not assume gert sandboxes extensions.
 
-**Statelessness invariant:** Extension runners **must be stateless between `execute` calls**. The kernel does not guarantee process isolation per step — it reuses the runner process for efficiency. Runners that cache data or mutate internal state between calls will break replay determinism.
+**Statelessness invariant:** Extension runners **must be stateless between `execute` calls**. The kernel does not guarantee process isolation per step — it reuses the runner process for efficiency. Runners that cache data or mutate internal state between calls will break replay determinism. Each `execute` call must be treated as independent — persisted state between calls is unsupported.
 
 **Contract honesty:** gert enforces declared contracts but **cannot verify undeclared side effects**. A tool declaring `effects: [network]` could also write to the filesystem. Governance must assume tools and extensions are trusted code. The contract model is a declaration of intent, not a sandbox.
+
+**Tool vs extension — when to use which:**
+- Use **tools** for external actions that produce data (run a command, call an API, query a database)
+- Use **extensions** when the step needs custom execution semantics or lifecycle beyond tool invocation (multi-phase operations, stateful protocols, custom retry logic)
+- If it looks like a tool, make it a tool. Extensions are the escape hatch, not the default.
 
 **Lifecycle:** spawn on first use, reuse for subsequent extension steps referencing the same runner, shutdown on engine completion. Same pattern as jsonrpc tool transport.
 
@@ -602,7 +607,7 @@ type ApprovalResponse struct {
 - `--stop-on` triggers only on **terminal outcomes** (the run reached an `end` step)
 - If a run fails before reaching an outcome (engine error) → loop stops (errors are not recoverable by retrying)
 - If a run enters `approval_pending` state → loop stops (can't auto-resume async approvals in a loop)
-- Trace signing failures → loop stops (integrity cannot be guaranteed)
+- Trace signing failures → loop stops (integrity cannot be guaranteed)\n- Probe mode failures and contract violations do **not** stop the loop unless they result in a terminal outcome or engine error
 
 ---
 
@@ -911,7 +916,7 @@ actions:
 - For `transport: mcp` + `connect: stdio`: spawn the binary, initialize MCP session, call `tools/call`
 - For `transport: mcp` + `connect: http://...`: connect to running MCP server
 - Map tool action inputs to MCP tool arguments, map MCP results back to contract outputs
-- MCP server lifecycle: spawn on first use, reuse for subsequent calls, shutdown on engine completion
+- MCP tool servers are initialized once per engine run and reused for all actions targeting that server. Connection failure triggers restart and step retry (once). If restart also fails → step status `error`. Session is closed on engine completion.
 
 ### Priority
 
@@ -1002,7 +1007,7 @@ After each tool step execution, the engine performs contract consistency checks:
 | **Missing declared outputs** | Tool doesn't produce all keys listed in `contract.outputs` | `contract_violation` trace event (warning) |
 | **Deterministic check** | If `deterministic: true` and the step was previously executed with the same inputs (in a retry loop), compare outputs. Different outputs → violation. | `contract_violation` trace event (error) |
 
-The engine records violations in the trace but **does not halt** — the author may have legitimate reasons. Repeated violations across multiple runs signal a bad contract, surfaced via outcome aggregation (Phase I).
+The engine records violations in the trace but **does not halt by default** — the author may have legitimate reasons. Repeated violations across multiple runs signal a bad contract, surfaced via outcome aggregation (Phase I).\n\n**Escalation policy:** Governance may escalate contract violations to step failure. If a governance rule includes `contract_violations: deny`, the engine treats any violation as a step error and halts. This allows organizations to tighten enforcement without kernel changes:\n\n```yaml\ngovernance:\n  rules:\n    - contract_violations: deny      # strict mode — any violation halts\n    - default: allow\n```
 
 #### Trace event
 
@@ -1390,6 +1395,28 @@ Kernel interfaces are **unstable** until Track 1 is complete. Expect breaking ch
 - Input resolution (new kernel-level semantics)
 
 Track 2 work should not start on a component until the kernel interfaces it depends on are hardened.
+
+### Protocol unification direction
+
+The kernel currently has three external execution models that use similar patterns (spawn binary, JSON-RPC stdio, structured results):
+
+| Model | Used for | Protocol |
+|-------|----------|----------|
+| Tool transport (stdio) | Tool execution | spawn + argv + stdout capture |
+| Extension runner | Custom step behavior | JSON-RPC stdio |
+| Input provider | Input resolution | JSON-RPC stdio |
+
+These are intentionally separate today — each has different method sets and lifecycle. However, the architecture signals a future **capability runtime** abstraction where a single JSON-RPC protocol handles all three roles via different method namespaces. Not required for v0, but avoid designs that make future unification impossible.
+
+### What NOT to add next
+
+- No distributed execution
+- No built-in secrets manager
+- No web UI before adoption
+- No governance DSL v2 before real usage
+- No plugin marketplace before pack format stabilizes
+
+Less design, more usage is the correct next move.
 
 ---
 
