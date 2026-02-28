@@ -131,3 +131,65 @@ func TestWriter_EmitOutcomeResolved(t *testing.T) {
 		t.Errorf("category = %v", outcome["category"])
 	}
 }
+
+// T087: Every trace event includes prev_hash
+func TestWriter_HashChaining(t *testing.T) {
+	var buf bytes.Buffer
+	tw := NewWriter(&buf, "run-1")
+
+	tw.EmitStepStart("s1", "tool", nil)
+	tw.EmitStepComplete("s1", StatusSuccess, nil, 0, nil)
+	tw.EmitStepStart("s2", "assert", nil)
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d", len(lines))
+	}
+
+	for i, line := range lines {
+		var evt Event
+		if err := json.Unmarshal([]byte(line), &evt); err != nil {
+			t.Fatalf("line %d: JSON unmarshal: %v", i, err)
+		}
+		if evt.PrevHash == "" {
+			t.Errorf("line %d: prev_hash is empty", i)
+		}
+	}
+
+	// First event should have zero-hash genesis
+	var first Event
+	json.Unmarshal([]byte(lines[0]), &first)
+	if first.PrevHash != strings.Repeat("0", 64) {
+		t.Errorf("first event prev_hash = %q, want 64 zeros", first.PrevHash)
+	}
+
+	// Second event should have different prev_hash from first
+	var second Event
+	json.Unmarshal([]byte(lines[1]), &second)
+	if second.PrevHash == first.PrevHash {
+		t.Error("second event should have different prev_hash from first")
+	}
+}
+
+// T090: run_complete includes chain_hash
+func TestWriter_RunComplete_ChainHash(t *testing.T) {
+	var buf bytes.Buffer
+	tw := NewWriter(&buf, "run-1")
+
+	tw.EmitStepStart("s1", "tool", nil)
+	tw.EmitRunComplete(nil, "completed", time.Second)
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	lastLine := lines[len(lines)-1]
+
+	var evt Event
+	json.Unmarshal([]byte(lastLine), &evt)
+
+	chainHash, ok := evt.Data["chain_hash"].(string)
+	if !ok || chainHash == "" {
+		t.Error("run_complete missing chain_hash")
+	}
+	if len(chainHash) != 64 {
+		t.Errorf("chain_hash length = %d, want 64 hex chars", len(chainHash))
+	}
+}

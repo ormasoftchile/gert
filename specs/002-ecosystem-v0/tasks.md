@@ -192,23 +192,23 @@
 
 ### Tests for US5
 
-- [ ] T087 [P] [US5] Test: every trace event includes prev_hash in pkg/kernel/trace/trace_test.go
-- [ ] T088 [P] [US5] Test: first event has zero-hash genesis in pkg/kernel/trace/trace_test.go
-- [ ] T089 [P] [US5] Test: modified event breaks chain verification in pkg/kernel/trace/trace_test.go
-- [ ] T090 [P] [US5] Test: run_complete includes chain_hash and signature in pkg/kernel/trace/trace_test.go
-- [ ] T091 [P] [US5] Test: run_start includes actor, host, gert_version, runbook_hash, tool_hashes in pkg/kernel/trace/trace_test.go
-- [ ] T092 [P] [US5] Test: principal attribution on step events in pkg/kernel/trace/trace_test.go
+- [X] T087 [P] [US5] Test: every trace event includes prev_hash in pkg/kernel/trace/trace_test.go
+- [X] T088 [P] [US5] Test: first event has zero-hash genesis in pkg/kernel/trace/trace_test.go
+- [X] T089 [P] [US5] Test: modified event breaks chain verification in pkg/kernel/trace/trace_test.go
+- [X] T090 [P] [US5] Test: run_complete includes chain_hash and signature in pkg/kernel/trace/trace_test.go
+- [X] T091 [P] [US5] Test: run_start includes actor, host, gert_version, runbook_hash, tool_hashes in pkg/kernel/trace/trace_test.go
+- [X] T092 [P] [US5] Test: principal attribution on step events in pkg/kernel/trace/trace_test.go
 
 ### Implementation for US5
 
-- [ ] T093 [US5] Add `prevJSON` and `prevHash` to trace.Writer; compute SHA-256 in Emit() in pkg/kernel/trace/trace.go
-- [ ] T094 [US5] Add `chain_hash` and `signature` fields to run_complete event in pkg/kernel/trace/trace.go
-- [ ] T095 [US5] Add `Principal` struct to trace event types in pkg/kernel/trace/trace.go
-- [ ] T096 [US5] Add run identity (actor, host, version, hashes) to run_start emission in pkg/kernel/engine/engine.go
-- [ ] T097 [US5] Implement `gert trace verify` command in cmd/gert/main.go
+- [X] T093 [US5] Add `prevJSON` and `prevHash` to trace.Writer; compute SHA-256 in Emit() in pkg/kernel/trace/trace.go
+- [X] T094 [US5] Add `chain_hash` and `signature` fields to run_complete event in pkg/kernel/trace/trace.go
+- [X] T095 [US5] Add `Principal` struct to trace event types in pkg/kernel/trace/trace.go
+- [X] T096 [US5] Add run identity (actor, host, version, hashes) to run_start emission in pkg/kernel/engine/engine.go
+- [X] T097 [US5] Implement `gert trace verify` command in cmd/gert/main.go
 - [ ] T097a [P] [US5] Test: `gert trace verify` detects broken chain and validates signature in cmd/gert/trace_verify_test.go
-- [ ] T098 [US5] Add `GERT_TRACE_SIGNING_KEY` / `GERT_TRACE_SIGNING_KEY_ID` env var support in pkg/kernel/trace/trace.go
-- [ ] T099 [US5] Update RunConfig to include Actor and Host fields in pkg/kernel/engine/engine.go
+- [X] T098 [US5] Add `GERT_TRACE_SIGNING_KEY` / `GERT_TRACE_SIGNING_KEY_ID` env var support in pkg/kernel/trace/trace.go
+- [X] T099 [US5] Update RunConfig to include Actor and Host fields in pkg/kernel/engine/engine.go
 
 **Checkpoint**: All traces have hash chains. Signing + verification works. ≥6 new tests pass.
 
@@ -363,6 +363,7 @@
 | Polish tasks | 22 |
 | Parallelizable tasks | 82 |
 | MVP scope (US1 only) | 35 tasks (Setup + Foundation + US1) |
+
 
 
 
