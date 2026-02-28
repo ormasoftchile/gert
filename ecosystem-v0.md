@@ -473,6 +473,10 @@ One set, no drift. The kernel enforces this enum:
 
 Domain-specific meaning lives in `outcome.code` (free-form string) and `outcome.meta` (free-form map). Do NOT invent new categories mid-doc or mid-runbook. Governance keys on categories; extending the enum breaks policy contracts.
 
+**Engine errors are not outcomes.** Runs that error before reaching an `end` step (validation failure, tool crash, contract violation) are represented by `run status` (`error`, `failed`), not by an outcome category. The outcome enum is reserved for runs that reached a terminal `end` step.
+
+**Governance scope:** Governance rules evaluate **each step independently**. Run-level policies (e.g., "no production writes after hours") are outside kernel scope and belong to host enforcement.
+
 ### 6.2 Run Identity (run_start event)
 
 The `run_start` trace event must include identity + provenance for audit-grade traceability:
@@ -500,6 +504,8 @@ The `run_start` trace event must include identity + provenance for audit-grade t
 This proves: who ran it, where it ran, what exact runbook + tools were used, and what version of gert executed it. Supply chain for runbooks.
 
 **Schema change:** `RunConfig` gains `Actor string` and `Host string`. `run_start` event in trace writer includes runbook/tool content hashes computed at load time.
+
+**Hash scope:** `tool_hashes` and `runbook_hash` are computed from the **YAML definition file content**, not from referenced binaries. Binary integrity is outside gert's scope — supply-chain verification of tool binaries belongs to the host platform (e.g., signed binaries, container image hashes).
 
 ### 6.3 Extension Step Runner Protocol (Track 1f)
 
@@ -553,6 +559,8 @@ Kernel                          Extension Runner (stdio)
 - If the runner process crashes or times out → step status `error`
 
 **Trust boundary:** Extension runners are **trusted executables**. gert enforces contracts at the interface level (inputs/outputs/governance) but **cannot prevent undeclared side effects inside runners**. A runner could make network calls, write files, or leak secrets without gert's knowledge. Governance must treat extension runners as **privileged code** — the same trust level as tool binaries. Auditors should not assume gert sandboxes extensions.
+
+**Statelessness invariant:** Extension runners **must be stateless between `execute` calls**. The kernel does not guarantee process isolation per step — it reuses the runner process for efficiency. Runners that cache data or mutate internal state between calls will break replay determinism.
 
 **Lifecycle:** spawn on first use, reuse for subsequent extension steps referencing the same runner, shutdown on engine completion. Same pattern as jsonrpc tool transport.
 
@@ -1026,6 +1034,7 @@ gert exec runbook.yaml --mode probe --var hostname=test.example.com
 - Executes tool steps where `writes == []` **and** `effects` are in an allowed list (default: `[network, database]` for read-only probing)
 - Skips tools with any `writes` (reports contract + governance as dry-run does)
 - `--probe-allow-effects network,database` flag controls which effects are safe to probe
+- **Default allowed effects for probe: `[network]` only.** Database probes are not universally safe (expensive queries, locks, triggers). Organizations must explicitly opt in to database probing via the flag.
 - For executed tools: applies contract violation detection (§9.2)
 - For `deterministic: true` tools: runs twice with same inputs, verifies output consistency
 
