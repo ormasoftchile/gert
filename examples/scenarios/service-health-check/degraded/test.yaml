@@ -1,0 +1,15 @@
+# Test: degraded scenario — restart succeeds
+description: Service 503 → restart → 200 → resolved
+expected_status: completed
+expected_outcome: resolved
+expected_code: service_restarted
+must_reach:
+  - check_health
+  - evaluate
+  - restart
+  - verify
+  - resolved_end
+must_not_reach:
+  - healthy_end
+  - investigate
+  - escalated_end

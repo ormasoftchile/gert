@@ -1,0 +1,10 @@
+# Scenario: Service returns 200 — healthy, no action needed.
+inputs:
+  hostname: srv1.example.com
+
+tool_responses:
+  "health-check:check":
+    - exit_code: 0
+      stdout: "200"
+      outputs:
+        status_code: "200"

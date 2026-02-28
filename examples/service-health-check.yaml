@@ -1,0 +1,134 @@
+# Service Health Check — kernel/v0 Example Runbook
+#
+# This runbook demonstrates the full kernel/v0 feature set:
+#   - Constants and inputs
+#   - Tool steps with contract-based governance
+#   - Assert steps with continue_on_fail
+#   - Branch routing based on tool output
+#   - Structured outcomes with template-resolved metadata
+#   - End steps in every path
+#
+# Run:
+#   gert-kernel validate examples/service-health-check.yaml
+#   gert-kernel exec examples/service-health-check.yaml --mode dry-run --var hostname=srv1.example.com
+#   gert-kernel test examples/service-health-check.yaml
+
+apiVersion: kernel/v0
+
+meta:
+  name: service-health-check
+  description: Diagnose and remediate service health issues
+
+  inputs:
+    hostname:
+      type: string
+      required: true
+      description: Target service hostname
+
+  constants:
+    health_endpoint: "/healthz"
+    max_retries: 2
+
+  governance:
+    rules:
+      - risk: critical
+        action: require-approval
+      - default: allow
+
+  extensions:
+    x-team: platform-eng
+    x-runbook-type: mitigation
+
+tools:
+  - health-check
+  - restart-service
+
+steps:
+  # Step 1: Check service health
+  - id: check_health
+    type: tool
+    tool: health-check
+    action: check
+    inputs:
+      url: "https://{{ .hostname }}{{ .health_endpoint }}"
+
+  # Step 2: Evaluate — is it healthy?
+  - id: evaluate
+    type: assert
+    continue_on_fail: true
+    assert:
+      - type: equals
+        value: "{{ .status_code }}"
+        expected: "200"
+
+  # Step 3: Route based on status
+  - id: triage
+    type: branch
+    branches:
+      # --- Healthy path ---
+      - condition: '{{ eq .status_code "200" }}'
+        label: healthy
+        steps:
+          - id: healthy_end
+            type: end
+            outcome:
+              category: no_action
+              code: service_healthy
+              meta:
+                status_code: "{{ .status_code }}"
+
+      # --- Degraded path (503) — attempt restart ---
+      - condition: '{{ eq .status_code "503" }}'
+        label: degraded
+        steps:
+          - id: restart
+            type: tool
+            tool: restart-service
+            action: restart
+            inputs:
+              service: "{{ .hostname }}"
+
+          - id: verify
+            type: tool
+            tool: health-check
+            action: check
+            inputs:
+              url: "https://{{ .hostname }}{{ .health_endpoint }}"
+
+          - id: verify_assert
+            type: assert
+            continue_on_fail: true
+            assert:
+              - type: equals
+                value: "{{ .status_code }}"
+                expected: "200"
+
+          - id: resolved_end
+            type: end
+            outcome:
+              category: resolved
+              code: service_restarted
+              meta:
+                original_status: "503"
+                final_status: "{{ .status_code }}"
+
+      # --- Unknown status — escalate ---
+      - condition: default
+        label: unknown
+        steps:
+          - id: investigate
+            type: manual
+            instructions: "Unexpected status {{ .status_code }} for {{ .hostname }}. Investigate manually."
+            contract:
+              side_effects: false
+            required_evidence:
+              - kind: text
+                name: investigation_notes
+
+          - id: escalated_end
+            type: end
+            outcome:
+              category: escalated
+              code: unknown_failure
+              meta:
+                status_code: "{{ .status_code }}"

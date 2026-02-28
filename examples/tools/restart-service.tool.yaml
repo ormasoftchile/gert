@@ -1,0 +1,27 @@
+apiVersion: tool/v0
+meta:
+  name: restart-service
+  description: Restart a service by name
+  transport: stdio
+  binary: systemctl
+contract:
+  inputs:
+    service:
+      type: string
+      required: true
+  outputs:
+    result:
+      type: string
+  side_effects: true
+  deterministic: false
+  idempotent: true
+  reads: []
+  writes:
+    - service
+actions:
+  restart:
+    description: Restart the named service
+    argv: ["systemctl", "restart", "{{ .service }}"]
+    extract:
+      result:
+        from: stdout

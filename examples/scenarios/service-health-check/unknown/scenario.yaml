@@ -1,0 +1,14 @@
+# Scenario: Service returns 418 (unexpected) — escalate.
+inputs:
+  hostname: srv3.example.com
+
+tool_responses:
+  "health-check:check":
+    - exit_code: 0
+      stdout: "418"
+      outputs:
+        status_code: "418"
+
+evidence:
+  investigate:
+    investigation_notes: "Confirmed: service returned 418 I'm a teapot. Escalating to backend team."

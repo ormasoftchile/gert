@@ -1,0 +1,14 @@
+# Test: unknown status — should escalate
+description: Unexpected 418 → manual investigation → escalated
+expected_status: completed
+expected_outcome: escalated
+expected_code: unknown_failure
+must_reach:
+  - check_health
+  - evaluate
+  - investigate
+  - escalated_end
+must_not_reach:
+  - healthy_end
+  - restart
+  - resolved_end

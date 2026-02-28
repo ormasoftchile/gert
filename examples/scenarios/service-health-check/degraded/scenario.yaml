@@ -1,0 +1,20 @@
+# Scenario: Service returns 503, restart fixes it (returns 200 on verify).
+inputs:
+  hostname: srv2.example.com
+
+tool_responses:
+  "health-check:check":
+    - exit_code: 0
+      stdout: "503"
+      outputs:
+        status_code: "503"
+    - exit_code: 0
+      stdout: "200"
+      outputs:
+        status_code: "200"
+
+  "restart-service:restart":
+    - exit_code: 0
+      stdout: "restarted"
+      outputs:
+        result: "restarted"

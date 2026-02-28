@@ -1,0 +1,29 @@
+apiVersion: tool/v0
+meta:
+  name: linux-only-tool
+  description: A tool that only works on Linux
+  transport: stdio
+  binary: journalctl
+  platform:
+    - linux
+contract:
+  inputs:
+    unit:
+      type: string
+      required: true
+  outputs:
+    logs:
+      type: string
+  side_effects: false
+  deterministic: false
+  idempotent: true
+  reads:
+    - filesystem
+  writes: []
+actions:
+  tail:
+    description: Show recent logs for a systemd unit
+    argv: ["journalctl", "-u", "{{ .unit }}", "--no-pager", "-n", "50"]
+    extract:
+      logs:
+        from: stdout

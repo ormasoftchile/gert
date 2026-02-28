@@ -1,0 +1,30 @@
+apiVersion: tool/v0
+meta:
+  name: health-check
+  description: Check service health via HTTP
+  transport: stdio
+  binary: curl
+contract:
+  inputs:
+    url:
+      type: string
+      required: true
+  outputs:
+    status_code:
+      type: string
+    body:
+      type: string
+  side_effects: false
+  deterministic: true
+  idempotent: true
+  reads:
+    - network
+  writes: []
+actions:
+  check:
+    description: GET request and return HTTP status code
+    argv: ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "{{ .url }}"]
+    extract:
+      status_code:
+        from: stdout
+        pattern: "^(\\d+)$"

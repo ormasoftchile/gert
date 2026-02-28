@@ -1,0 +1,15 @@
+# Test: healthy scenario
+description: Service is up — should take no action
+expected_status: completed
+expected_outcome: no_action
+expected_code: service_healthy
+must_reach:
+  - check_health
+  - evaluate
+  - healthy_end
+must_not_reach:
+  - restart
+  - investigate
+  - escalated_end
+expected_outputs:
+  status_code: "200"
