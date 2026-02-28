@@ -578,4 +578,100 @@ Lower than Phases A–F. Can be added when AI agent integration demands it.
 | `InputProvider` | Pre-engine step in CLI/MCP server, not in engine | F |
 | MCP transport | New executor in `pkg/kernel/executor/` | After F |
 
-Everything else is ecosystem-only — imports kernel packages, never modifies them.
+Phases B and "after F" modify kernel packages. All other phases are ecosystem-only — they import kernel packages but never modify them.
+
+### CLI naming
+
+- `cmd/gert-kernel/` (current) becomes the **minimal reference binary** — useful for testing and embedding.
+- `cmd/gert/` (new, Phase A) becomes the **standard distribution** — replaces the old broken `cmd/gert/` with one that imports only kernel packages.
+- The old `cmd/gert/` (pre-kernel) is deleted when `cmd/gert/` is rebuilt on the kernel.
+
+### Approval timeout
+
+All `ApprovalProvider` implementations must respect a timeout. The `ApprovalRequest` should include a `Timeout time.Duration` field. If the provider doesn't respond within the timeout, the engine treats it as a rejection. Default: 5 minutes for interactive, 30 minutes for async (Teams/Slack).
+
+### Context propagation
+
+All provider interfaces (`ApprovalProvider`, `InputProvider`, `ToolExecutor`) should accept `context.Context` as their first parameter for cancellation and timeout propagation. This is a kernel-level decision to make before Phase B.
+
+---
+
+## 10. Competitive Analysis
+
+### Landscape
+
+gert operates at the intersection of **runbook automation**, **incident response**, and **infrastructure orchestration**. No single competitor covers all of gert's surface. Here's how gert compares across dimensions:
+
+### Direct competitors
+
+| Product | Type | Governance | Contracts | Parallel | Replay/Test | TUI | AI Agent | Open Source |
+|---------|------|-----------|-----------|----------|-------------|-----|----------|-------------|
+| **gert** | Runbook engine | Contract-driven risk | ✅ Full | ✅ State-isolated | ✅ Scenario-based | Planned | Planned (MCP) | ✅ |
+| **Rundeck** (PagerDuty) | Job scheduler + runbooks | ACL-based | ❌ | ✅ Workflow | ❌ | ❌ Web only | ❌ | ✅ (OSS edition) |
+| **Ansible** | Config management + playbooks | Become/privilege escalation | ❌ | ✅ Forks | ❌ (check mode) | ❌ | ❌ | ✅ |
+| **Temporal** | Workflow orchestration | Namespace/task queue | ❌ | ✅ Activities | ✅ Replay from history | ❌ | ❌ | ✅ |
+| **Prefect** | Data/ML orchestration | ❌ | ❌ | ✅ Tasks | ❌ | ❌ Web UI | ❌ | ✅ |
+| **Argo Workflows** | Kubernetes workflow engine | RBAC | ❌ | ✅ DAG | ❌ | ❌ Web UI | ❌ | ✅ |
+| **Shoreline** | Incident automation | Policy-based | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ Proprietary |
+| **Transposit** (now ServiceNow) | Runbook automation | Approval gates | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ Proprietary |
+| **Rootly / Firehydrant** | Incident management | Workflow approvals | ❌ | ❌ | ❌ | ❌ | ✅ Slack-native | ❌ Proprietary |
+
+### Where gert is strongest
+
+**1. Contract-driven governance (unique)**
+
+No competitor has behavioral contracts on steps. Rundeck has ACLs. Ansible has `become`. Temporal has task queues. None derive risk classification from `side_effects × deterministic × idempotent` and auto-escalate to approval gates. This is gert's fundamental differentiator — governance emerges from declared behavior, not from command-name allowlists.
+
+**2. Deterministic replay + scenario testing (rare)**
+
+Temporal has replay from event history, but it's for debugging distributed workflows, not for runbook validation. gert's scenario testing — canned tool responses + declarative assertions on outcomes, step visits, and outputs — has no equivalent in the runbook automation space. Ansible's `check mode` is the closest, but it doesn't support assertions or multiple scenarios per playbook.
+
+**3. Structured outcomes (unique)**
+
+Every gert run produces a categorized outcome (resolved/escalated/no_action/needs_rca) with domain-specific codes and metadata. Competitors produce exit codes or unstructured logs. This enables dashboards, trend analysis, and governance policies keyed on outcomes.
+
+**4. YAML-native, single-file runbooks**
+
+Unlike Temporal (requires writing Go/Python/Java workers), Argo (Kubernetes CRDs), or Ansible (inventory + playbook + roles), gert runbooks are self-contained YAML files with inline governance. Lower barrier to entry for SRE teams.
+
+**5. Append-only audit trace**
+
+gert's JSONL trace records every decision — contract evaluation, governance decision, branch taken, approval received. Most competitors log execution but don't produce a structured, verifiable audit trail with 14 typed events.
+
+### Where gert is weakest
+
+**1. No distributed orchestration**
+
+Temporal, Argo Workflows, and Prefect handle distributed execution across workers/pods. gert runs on a single machine. This is by design (kernel boundary), but it means gert can't orchestrate multi-machine deployments natively. Mitigation: gert can call tools that trigger remote operations (kubectl, az, ssh), and distributed orchestration is explicitly outside the kernel.
+
+**2. No built-in scheduling**
+
+Rundeck is a job scheduler first. Ansible has Tower/AWX. gert has no cron, no queue, no recurring runs. Mitigation: host platform provides scheduling (Azure Pipelines, GitHub Actions, cron, Kubernetes CronJobs). gert is invoked, not scheduled.
+
+**3. No web UI (yet)**
+
+Rundeck, Argo, and Prefect ship with web dashboards. gert has CLI + TUI (planned) + VS Code (planned). No standalone web UI for non-developers. Mitigation: the MCP server could back a web frontend, but it's not planned in the ecosystem doc.
+
+**4. Small ecosystem / no marketplace**
+
+Ansible has Galaxy (thousands of roles). Rundeck has plugins. gert has a handful of example tools. Mitigation: tool definitions are trivial YAML files wrapping existing binaries — the barrier to contribution is low. But discovery and sharing aren't solved.
+
+**5. No native secrets management**
+
+gert explicitly delegates secrets to the host platform. Competitors like Rundeck have built-in key storage. Ansible has Vault integration. gert reads environment variables. Fine for Kubernetes (secrets mounted as env vars), but missing for standalone use cases.
+
+### Unique positioning
+
+gert occupies a space no competitor fills: **governed, contract-driven runbook execution with deterministic testing**. The closest pairing would be Temporal (replay) + Rundeck (governance) + Ansible (YAML playbooks) — but that's three products, none of which share data models.
+
+The AI-agent integration via MCP (Phase D) is forward-looking — no runbook tool today exposes operations as MCP tools. This positions gert as the execution backend for AI-driven incident response, where agents need governed, auditable operations with human-in-the-loop approval.
+
+### Strategic gaps to address
+
+| Gap | Priority | Mitigation |
+|-----|----------|------------|
+| No web UI | Medium | MCP server could back a lightweight web frontend (future phase) |
+| No tool marketplace | Low | GitHub-based tool sharing + `gert-project.yaml` dependency resolution |
+| No secrets integration | Medium | Add `secrets:` section to tool definitions that references env vars or external secret stores by convention |
+| Single-machine execution | Low | By design — gert orchestrates remote operations via tools, not local processes |
+| No Windows-native tool library | Low | Most SRE tools (curl, kubectl, az) are cross-platform; platform field handles the rest |
