@@ -29,6 +29,14 @@ const (
 	EventRedactionApplied   EventType = "redaction_applied"
 	EventForEachStart       EventType = "for_each_start"
 	EventForEachItem        EventType = "for_each_item"
+	EventApprovalSubmitted  EventType = "approval_submitted"
+	EventApprovalResolved   EventType = "approval_resolved"
+	EventScopeExport        EventType = "scope_export"
+	EventVisibilityApplied  EventType = "visibility_applied"
+	EventRepeatStart        EventType = "repeat_start"
+	EventRepeatIteration    EventType = "repeat_iteration"
+	EventContractViolation  EventType = "contract_violation"
+	EventInputResolved      EventType = "input_resolved"
 )
 
 // StepStatus is the execution status of a step.

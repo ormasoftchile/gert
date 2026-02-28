@@ -96,11 +96,16 @@ type Step struct {
 	ID             string         `yaml:"id,omitempty"   json:"id,omitempty"`
 	Type           StepType       `yaml:"type"           json:"type"`
 	When           string         `yaml:"when,omitempty" json:"when,omitempty"`
-	Next           any            `yaml:"next,omitempty" json:"next,omitempty"` // string or NextBounded
+	Next           any            `yaml:"next,omitempty" json:"next,omitempty"`
 	ContinueOnFail bool           `yaml:"continue_on_fail,omitempty" json:"continue_on_fail,omitempty"`
 	Extensions     map[string]any `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 
-	// ForEach modifier (any step type)
+	// Scoped state (Track 1i)
+	Scope      string      `yaml:"scope,omitempty"      json:"scope,omitempty"`      // variable namespace
+	Export     []string    `yaml:"export,omitempty"     json:"export,omitempty"`     // promote outputs to global
+	Visibility *Visibility `yaml:"visibility,omitempty" json:"visibility,omitempty"` // allow/deny globs
+
+	// ForEach modifier
 	ForEach *ForEach `yaml:"for_each,omitempty" json:"for_each,omitempty"`
 
 	// Tool step
@@ -166,7 +171,14 @@ func ParseNext(raw any) (target string, max int, bounded bool, err error) {
 type ForEach struct {
 	As       string `yaml:"as"       json:"as"`
 	Over     string `yaml:"over"     json:"over"`
+	Key      string `yaml:"key,omitempty" json:"key,omitempty"` // produces map-structured outputs
 	Parallel bool   `yaml:"parallel,omitempty" json:"parallel,omitempty"`
+}
+
+// Visibility declares which variable paths a step can access.
+type Visibility struct {
+	Allow []string `yaml:"allow,omitempty" json:"allow,omitempty"` // glob patterns
+	Deny  []string `yaml:"deny,omitempty"  json:"deny,omitempty"`  // glob patterns (deny overrides allow)
 }
 
 // ---------------------------------------------------------------------------

@@ -891,17 +891,19 @@ func (e *Engine) executeForEach(ctx context.Context, step schema.Step, stepID st
 	innerStep.ForEach = nil
 
 	if fe.Parallel {
-		return e.executeForEachParallel(ctx, innerStep, stepID, fe.As, items)
+		return e.executeForEachParallel(ctx, innerStep, stepID, fe.As, fe.Key, items)
 	}
-	return e.executeForEachSequential(ctx, innerStep, stepID, fe.As, items)
+	return e.executeForEachSequential(ctx, innerStep, stepID, fe.As, fe.Key, items)
 }
 
 // executeForEachSequential runs the step once per item, sequentially.
-func (e *Engine) executeForEachSequential(ctx context.Context, step schema.Step, stepID, asVar string, items []any) *RunResult {
-	accumulated := make([]any, 0, len(items))
+func (e *Engine) executeForEachSequential(ctx context.Context, step schema.Step, stepID, asVar, keyExpr string, items []any) *RunResult {
+	// If key expression is provided, produce map outputs; otherwise list
+	useMap := keyExpr != ""
+	var accumulatedList []any
+	accumulatedMap := make(map[string]any)
 
 	for i, item := range items {
-		// Emit for_each_item
 		if e.trace != nil {
 			e.trace.Emit(trace.EventForEachItem, map[string]any{
 				"step_id": stepID,
@@ -910,37 +912,48 @@ func (e *Engine) executeForEachSequential(ctx context.Context, step schema.Step,
 			})
 		}
 
-		// Set the iteration variable
 		e.vars[asVar] = item
 
 		iterID := fmt.Sprintf("%s[%d]", stepID, i)
 		result := e.executeStep(ctx, step, iterID)
 
-		// Collect outputs for accumulation
-		if iterID != "" {
-			if outputs, ok := e.vars[iterID]; ok {
-				accumulated = append(accumulated, outputs)
+		// Collect outputs
+		if outputs, ok := e.vars[iterID]; ok {
+			if useMap {
+				key, err := eval.Resolve(keyExpr, e.vars)
+				if err != nil {
+					return &RunResult{Status: "error", Error: fmt.Errorf("step %s: for_each key: %w", stepID, err)}
+				}
+				if _, exists := accumulatedMap[key]; exists {
+					return &RunResult{Status: "error", Error: fmt.Errorf("step %s: for_each key %q duplicated", stepID, key)}
+				}
+				accumulatedMap[key] = outputs
+			} else {
+				accumulatedList = append(accumulatedList, outputs)
 			}
 		}
 
 		if result != nil {
-			// Store partial accumulation
-			e.vars[stepID] = accumulated
+			if useMap {
+				e.vars[stepID] = accumulatedMap
+			} else {
+				e.vars[stepID] = accumulatedList
+			}
 			return result
 		}
 	}
 
-	// Store accumulated results under step ID
-	e.vars[stepID] = accumulated
-
-	// Remove the iteration variable (no longer in scope)
+	if useMap {
+		e.vars[stepID] = accumulatedMap
+	} else {
+		e.vars[stepID] = accumulatedList
+	}
 	delete(e.vars, asVar)
-
 	return nil
 }
 
 // executeForEachParallel runs the step once per item, concurrently.
-func (e *Engine) executeForEachParallel(ctx context.Context, step schema.Step, stepID, asVar string, items []any) *RunResult {
+func (e *Engine) executeForEachParallel(ctx context.Context, step schema.Step, stepID, asVar, keyExpr string, items []any) *RunResult {
 	type iterResult struct {
 		index   int
 		result  *RunResult

@@ -126,30 +126,30 @@
 
 ### Tests for US3
 
-- [ ] T053 [P] [US3] Test: scope field normalizes `/` to `.` in pkg/kernel/schema/schema_test.go
-- [ ] T054 [P] [US3] Test: export promotes scope-local outputs to global in pkg/kernel/engine/engine_test.go
-- [ ] T055 [P] [US3] Test: export collision with existing global → runtime error in pkg/kernel/engine/engine_test.go
-- [ ] T056 [P] [US3] Test: for_each.key produces map-structured outputs in pkg/kernel/engine/engine_test.go
-- [ ] T057 [P] [US3] Test: for_each.key duplicate keys → runtime error in pkg/kernel/engine/engine_test.go
-- [ ] T058 [P] [US3] Test: visibility_applied trace event emitted in pkg/kernel/trace/trace_test.go
-- [ ] T059 [P] [US3] Test: scope_export trace event emitted in pkg/kernel/trace/trace_test.go
-- [ ] T060 [P] [US3] Test: repeat block iterates max times in pkg/kernel/engine/engine_test.go
-- [ ] T061 [P] [US3] Test: repeat block stops on until condition in pkg/kernel/engine/engine_test.go
-- [ ] T062 [P] [US3] Test: visibility glob matching (* and **) in pkg/kernel/engine/visibility_test.go
+- [X] T053 [P] [US3] Test: scope field normalizes `/` to `.` in pkg/kernel/schema/schema_test.go
+- [X] T054 [P] [US3] Test: export promotes scope-local outputs to global in pkg/kernel/engine/engine_test.go
+- [X] T055 [P] [US3] Test: export collision with existing global → runtime error in pkg/kernel/engine/engine_test.go
+- [X] T056 [P] [US3] Test: for_each.key produces map-structured outputs in pkg/kernel/engine/engine_test.go
+- [X] T057 [P] [US3] Test: for_each.key duplicate keys → runtime error in pkg/kernel/engine/engine_test.go
+- [X] T058 [P] [US3] Test: visibility_applied trace event emitted in pkg/kernel/trace/trace_test.go
+- [X] T059 [P] [US3] Test: scope_export trace event emitted in pkg/kernel/trace/trace_test.go
+- [X] T060 [P] [US3] Test: repeat block iterates max times in pkg/kernel/engine/engine_test.go
+- [X] T061 [P] [US3] Test: repeat block stops on until condition in pkg/kernel/engine/engine_test.go
+- [X] T062 [P] [US3] Test: visibility glob matching (* and **) in pkg/kernel/engine/visibility_test.go
 
 ### Implementation for US3
 
-- [ ] T063 [US3] Add `Scope`, `Export`, `Visibility` fields to Step struct in pkg/kernel/schema/types.go
-- [ ] T064 [US3] Add `ForEachKey` field to ForEach struct in pkg/kernel/schema/types.go
-- [ ] T065 [US3] Add `RepeatBlock` struct and `StepRepeat` type to schema in pkg/kernel/schema/types.go
-- [ ] T066 [US3] Implement scope path normalization (`/` → `.`) in schema loader in pkg/kernel/schema/loader.go
-- [ ] T067 [US3] Implement scoped variable namespace in engine (global/step/scope) in pkg/kernel/engine/engine.go
-- [ ] T068 [US3] Implement export promotion (scope → global) with collision detection in pkg/kernel/engine/engine.go
-- [ ] T069 [US3] Implement for_each.key producing map-structured outputs in pkg/kernel/engine/engine.go
-- [ ] T070 [US3] Implement visibility glob matching engine in pkg/kernel/engine/visibility.go
-- [ ] T071 [US3] Implement repeat block execution with max + until in pkg/kernel/engine/engine.go
-- [ ] T072 [US3] Add `scope_export`, `visibility_applied`, `repeat_start`, `repeat_iteration` trace events in pkg/kernel/trace/trace.go
-- [ ] T073 [US3] Add validation rules for scope/export/visibility/repeat in pkg/kernel/validate/domain.go
+- [X] T063 [US3] Add `Scope`, `Export`, `Visibility` fields to Step struct in pkg/kernel/schema/types.go
+- [X] T064 [US3] Add `ForEachKey` field to ForEach struct in pkg/kernel/schema/types.go
+- [X] T065 [US3] Add `RepeatBlock` struct and `StepRepeat` type to schema in pkg/kernel/schema/types.go
+- [X] T066 [US3] Implement scope path normalization (`/` → `.`) in schema loader in pkg/kernel/schema/loader.go
+- [X] T067 [US3] Implement scoped variable namespace in engine (global/step/scope) in pkg/kernel/engine/engine.go
+- [X] T068 [US3] Implement export promotion (scope → global) with collision detection in pkg/kernel/engine/engine.go
+- [X] T069 [US3] Implement for_each.key producing map-structured outputs in pkg/kernel/engine/engine.go
+- [X] T070 [US3] Implement visibility glob matching engine in pkg/kernel/engine/visibility.go
+- [X] T071 [US3] Implement repeat block execution with max + until in pkg/kernel/engine/engine.go
+- [X] T072 [US3] Add `scope_export`, `visibility_applied`, `repeat_start`, `repeat_iteration` trace events in pkg/kernel/trace/trace.go
+- [X] T073 [US3] Add validation rules for scope/export/visibility/repeat in pkg/kernel/validate/domain.go
 - [ ] T074 [US3] Write multi-endpoint-sweep runbook using for_each.key in runbooks/multi-endpoint-sweep.yaml
 - [ ] T075 [US3] Write 2+ scenario tests for multi-endpoint-sweep in runbooks/scenarios/multi-endpoint-sweep/
 
@@ -363,6 +363,7 @@
 | Polish tasks | 22 |
 | Parallelizable tasks | 82 |
 | MVP scope (US1 only) | 35 tasks (Setup + Foundation + US1) |
+
 
 
 

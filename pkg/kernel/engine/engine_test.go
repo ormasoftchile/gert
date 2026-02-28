@@ -813,3 +813,89 @@ func TestEngine_ForEachWithTrace(t *testing.T) {
 		t.Error("trace missing for_each_item")
 	}
 }
+
+// T056: for_each.key produces map-structured outputs
+func TestEngine_ForEachKeyed(t *testing.T) {
+	rb := &schema.Runbook{
+		APIVersion: "kernel/v0",
+		Meta:       schema.Meta{Name: "test"},
+		Steps: []schema.Step{
+			{
+				ID:   "keyed",
+				Type: schema.StepAssert,
+				ForEach: &schema.ForEach{
+					As:  "item",
+					Over: "{{ .items }}",
+					Key: "{{ .item }}",
+				},
+				Assert: []schema.Assertion{
+					{Type: "equals", Value: "{{ .item }}", Expected: "{{ .item }}"},
+				},
+			},
+			{
+				Type: schema.StepEnd,
+				Outcome: &schema.Outcome{
+					Category: schema.OutcomeResolved,
+					Code:     "done",
+				},
+			},
+		},
+	}
+
+	eng := New(rb, RunConfig{RunID: "r1", Mode: "real"})
+	eng.vars["items"] = []any{"alpha", "beta", "gamma"}
+
+	result := eng.Run(context.Background())
+	if result.Status != "completed" {
+		t.Errorf("status = %q, error = %v", result.Status, result.Error)
+	}
+
+	// Keyed output should be a map
+	keyed, ok := eng.vars["keyed"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected map output, got %T: %v", eng.vars["keyed"], eng.vars["keyed"])
+	}
+	if len(keyed) != 3 {
+		t.Errorf("keyed map has %d entries, want 3", len(keyed))
+	}
+	if _, ok := keyed["alpha"]; !ok {
+		t.Error("missing key 'alpha'")
+	}
+	if _, ok := keyed["beta"]; !ok {
+		t.Error("missing key 'beta'")
+	}
+}
+
+// T057: for_each.key duplicate keys → runtime error
+func TestEngine_ForEachKey_DuplicateError(t *testing.T) {
+	rb := &schema.Runbook{
+		APIVersion: "kernel/v0",
+		Meta:       schema.Meta{Name: "test"},
+		Steps: []schema.Step{
+			{
+				ID:   "duped",
+				Type: schema.StepAssert,
+				ForEach: &schema.ForEach{
+					As:  "item",
+					Over: "{{ .items }}",
+					Key: "same_key",
+				},
+				Assert: []schema.Assertion{
+					{Type: "equals", Value: "a", Expected: "a"},
+				},
+			},
+			{
+				Type: schema.StepEnd,
+				Outcome: &schema.Outcome{Category: schema.OutcomeResolved, Code: "done"},
+			},
+		},
+	}
+
+	eng := New(rb, RunConfig{RunID: "r1", Mode: "real"})
+	eng.vars["items"] = []any{"a", "b"}
+
+	result := eng.Run(context.Background())
+	if result.Status != "error" {
+		t.Errorf("status = %q, want error for duplicate keys", result.Status)
+	}
+}
