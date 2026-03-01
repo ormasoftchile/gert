@@ -83,11 +83,10 @@ func main() {
 		runCfg.Mode = "replay"
 	}
 
+	// Wire engine config into model — engine starts on Init()
+	model.SetRunConfig(runCfg)
+
 	p := tea.NewProgram(model, tea.WithAltScreen())
-
-	// Start engine — streams trace events back to TUI via p.Send()
-	tui.StartEngine(model, runCfg, p)
-
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

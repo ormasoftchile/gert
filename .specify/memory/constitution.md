@@ -137,13 +137,33 @@ This constitution supersedes all ad-hoc practices. Amendments require:
 All implementation tasks MUST verify compliance with these principles. Complexity beyond what's specified MUST be justified in a Complexity Tracking table.
 
 
-## Completion Contract
+## Completion Contract (NON-NEGOTIABLE)
 
-A task MAY be marked complete only if:
+**No task, feature, or fix may be declared complete unless the agent has:**
 
-- The artifact was executed in a representative environment
-- Expected behavior was observed
-- Evidence is attached (logs, output, screenshots, traces)
-- If execution fails, the task remains IN PROGRESS
+1. **Built the actual binary** (`go build -o <name>.exe ./cmd/<name>/`) and confirmed exit code 0
+2. **Run the binary** against a real input that exercises the changed code path, in the local environment (not just unit tests)
+3. **Shown the output** — the terminal output from the binary run must be captured and reviewed for correctness
+4. **If it's a TUI/interactive feature**: launched it, observed the visual result, and confirmed the expected behavior is visible
+5. **If it's a CLI command**: run the command with representative arguments and verified the output matches expectations
+6. **If it's a trace/file-producing feature**: inspected the produced file contents to confirm they contain the expected data
 
-**Version**: 1.0.0 | **Ratified**: 2026-02-28 | **Last Amended**: 2026-02-28
+**What does NOT count as verification:**
+- Unit tests passing alone (they can be wrong — you wrote them)
+- `go build` succeeding (compilation ≠ correctness)
+- Marking a task `[X]` in tasks.md without running the code
+- Claiming something works based on code reading alone
+- Running tests you wrote at the same time as the implementation
+
+**Workflow:**
+1. Implement the change
+2. Build the binary
+3. Run it against a real scenario
+4. Observe the actual output
+5. Only THEN mark the task as done
+
+**If the binary output reveals a bug:** fix it, rebuild, re-run, and verify again before marking complete.
+
+This contract exists because an agent previously marked 15 tasks as complete without implementing them, then marked TUI features as working without ever running the binary. Trust is earned by demonstrated behavior, not assertions.
+
+**Version**: 1.1.0 | **Ratified**: 2026-02-28 | **Last Amended**: 2026-02-28

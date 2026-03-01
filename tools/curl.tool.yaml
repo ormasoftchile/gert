@@ -25,12 +25,10 @@ contract:
 
 actions:
   get:
-    description: Perform an HTTP GET request
-    argv: ["-s", "-L", "-w", "\n%{http_code}", "{{ .url }}"]
+    description: Perform an HTTP GET request and return the status code
+    argv: ["-s", "-o", "/dev/null", "-L", "-w", "%{http_code}", "{{ .url }}"]
     extract:
       status_code:
-        from: stdout
-      response:
         from: stdout
 
   post:

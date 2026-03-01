@@ -41,6 +41,8 @@ type Model struct {
 	err         error
 	ctx         context.Context
 	cancel      context.CancelFunc
+	eventCh     chan tea.Msg // channel for streaming events from engine goroutine
+	runCfg      *RunConfig  // set before Run() to auto-start engine
 }
 
 // NewModel creates a TUI model from a runbook.
@@ -78,9 +80,27 @@ type runCompleteMsg struct {
 	Err         error
 }
 
-// Init implements tea.Model.
+// Init implements tea.Model. Starts the engine if runCfg is set.
 func (m Model) Init() tea.Cmd {
+	if m.runCfg != nil {
+		m.status = "running"
+		// Launch engine goroutine — writes messages to eventCh
+		go m.runEngine(*m.runCfg)
+		// Return cmd to read the first event
+		return waitForEvent(m.eventCh)
+	}
 	return nil
+}
+
+// waitForEvent returns a tea.Cmd that blocks until the next event arrives on the channel.
+func waitForEvent(ch chan tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return msg
+	}
 }
 
 // Update implements tea.Model.
@@ -108,12 +128,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case traceEventMsg:
 		m.traceEvents = append(m.traceEvents, msg.Event)
 		m.applyTraceEvent(msg.Event)
+		m.status = "running"
+		// Keep listening for more events
+		return m, waitForEvent(m.eventCh)
 
 	case runCompleteMsg:
 		m.status = msg.Status
 		m.outcome = msg.Outcome
 		m.outcomeCode = msg.OutcomeCode
 		m.err = msg.Err
+		// Don't listen for more events — engine is done
+		return m, nil
 	}
 
 	return m, nil
@@ -250,12 +275,18 @@ type RunConfig struct {
 	ToolExec    engine.ToolExecutor // optional (replay executor)
 }
 
-// StartEngine launches the kernel engine and streams trace events to the TUI program.
-// Must be called with a *tea.Program reference so events can be pushed asynchronously.
-func StartEngine(m Model, cfg RunConfig, p *tea.Program) {
-	// Use a pipe: engine writes trace JSONL → reader goroutine parses and sends msgs
-	pr, pw := newPipeWriter()
+// SetRunConfig configures the engine to start on Init().
+func (m *Model) SetRunConfig(cfg RunConfig) {
+	m.eventCh = make(chan tea.Msg, 200)
+	m.runCfg = &cfg
+}
 
+// runEngine executes the kernel engine and sends trace events + completion to eventCh.
+func (m Model) runEngine(cfg RunConfig) {
+	defer close(m.eventCh)
+
+	// Use a pipe for trace — engine writes JSONL, we parse and forward
+	pr, pw := io.Pipe()
 	tw := trace.NewWriter(pw, "tui-run")
 
 	var stdout bytes.Buffer
@@ -272,92 +303,45 @@ func StartEngine(m Model, cfg RunConfig, p *tea.Program) {
 		eCfg.ToolExec = cfg.ToolExec
 	}
 
-	// Reader goroutine: parse JSONL lines and send trace events to TUI
+	// Reader goroutine: parse trace JSONL and send to channel
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		scanner := bufio.NewScanner(pr)
+		scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 		for scanner.Scan() {
 			var evt trace.Event
 			if err := json.Unmarshal(scanner.Bytes(), &evt); err == nil {
-				p.Send(traceEventMsg{Event: evt})
+				m.eventCh <- traceEventMsg{Event: evt}
 			}
 		}
 	}()
 
-	// Engine goroutine: run the engine, then close pipe and send completion
-	go func() {
-		eng := engine.New(m.runbook, eCfg)
-		result := eng.Run(m.ctx)
-		pw.Close() // signals reader goroutine to finish
+	// Run engine synchronously
+	eng := engine.New(m.runbook, eCfg)
+	result := eng.Run(m.ctx)
 
-		outcomeStr := ""
-		outcomeCode := ""
-		if result.Outcome != nil {
-			outcomeStr = string(result.Outcome.Category)
-			outcomeCode = result.Outcome.Code
-		}
-		status := result.Status
-		if status == "" {
-			status = "completed"
-		}
+	// Close pipe writer so reader finishes
+	pw.Close()
+	<-done // wait for reader to drain
 
-		p.Send(runCompleteMsg{
-			Outcome:     outcomeStr,
-			OutcomeCode: outcomeCode,
-			Status:      status,
-			Err:         result.Error,
-		})
-	}()
-}
-
-// pipeReader/pipeWriterEnd provide a channel-based pipe for streaming trace JSONL.
-
-// newPipeWriter creates a connected reader/writer pair for streaming trace events.
-// Returns (reader, writer). Writer must be closed when done.
-func newPipeWriter() (*pipeReader, *pipeWriterEnd) {
-	ch := make(chan []byte, 100)
-	done := make(chan struct{})
-	return &pipeReader{ch: ch, done: done}, &pipeWriterEnd{ch: ch, done: done}
-}
-
-type pipeReader struct {
-	ch   chan []byte
-	done chan struct{}
-	buf  []byte
-}
-
-func (r *pipeReader) Read(p []byte) (int, error) {
-	// Drain buffer first
-	if len(r.buf) > 0 {
-		n := copy(p, r.buf)
-		r.buf = r.buf[n:]
-		return n, nil
+	// Send completion
+	outcomeStr := ""
+	outcomeCode := ""
+	if result.Outcome != nil {
+		outcomeStr = string(result.Outcome.Category)
+		outcomeCode = result.Outcome.Code
 	}
-	data, ok := <-r.ch
-	if !ok {
-		return 0, io.EOF
+	status := result.Status
+	if status == "" {
+		status = "completed"
 	}
-	n := copy(p, data)
-	if n < len(data) {
-		r.buf = data[n:]
+	m.eventCh <- runCompleteMsg{
+		Outcome:     outcomeStr,
+		OutcomeCode: outcomeCode,
+		Status:      status,
+		Err:         result.Error,
 	}
-	return n, nil
-}
-
-type pipeWriterEnd struct {
-	ch   chan []byte
-	done chan struct{}
-}
-
-func (w *pipeWriterEnd) Write(p []byte) (int, error) {
-	cp := make([]byte, len(p))
-	copy(cp, p)
-	w.ch <- cp
-	return len(p), nil
-}
-
-func (w *pipeWriterEnd) Close() error {
-	close(w.ch)
-	return nil
 }
 
 // TUIApprovalProvider auto-approves in TUI mode (v0 — interactive approval is future work).
