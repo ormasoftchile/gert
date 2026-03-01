@@ -77,8 +77,8 @@
 - [X] T031 [US1] Add secrets redaction to trace writer output in pkg/kernel/trace/trace.go
 - [X] T032 [US1] Update dry-run mode to show effects + secrets info in pkg/kernel/engine/engine.go
 - [X] T033 Write/update 5 tool pack YAML files with effects taxonomy (update existing curl/ping, create new kubectl/az/jq) in tools/curl.tool.yaml, tools/kubectl.tool.yaml, tools/az.tool.yaml, tools/ping.tool.yaml, tools/jq.tool.yaml
-- [ ] T034 [US1] Write service-health-diagnostic runbook with effects-based governance in runbooks/service-health-diagnostic.yaml
-- [ ] T035 [US1] Write 2+ scenario tests for service-health-diagnostic in runbooks/scenarios/service-health-diagnostic/
+- [X] T034 [US1] Write service-health-diagnostic runbook with effects-based governance in runbooks/service-health-diagnostic.yaml
+- [X] T035 [US1] Write 2+ scenario tests for service-health-diagnostic in runbooks/scenarios/service-health-diagnostic/
 
 **Checkpoint**: Effects taxonomy + secrets convention working. `gert validate` and `gert exec --mode dry-run` show correct behavior. ≥10 new tests pass.
 
@@ -108,11 +108,11 @@
 - [X] T046 [US2] Replace current `requestApproval()` with `ApprovalProvider.Submit()` + `Wait()` in pkg/kernel/engine/engine.go
 - [X] T047 [US2] Implement `SaveState()` and `LoadState()` for run persistence in pkg/kernel/engine/state.go
 - [X] T048 [US2] Add `approval_submitted` and `approval_resolved` trace events in pkg/kernel/trace/trace.go
-- [ ] T049 [US2] Add `governance.approval_timeout` parsing to schema in pkg/kernel/schema/types.go
-- [ ] T050 [US2] Add `gert resume --run <id>` command to CLI in cmd/gert/main.go
-- [ ] T050a [P] [US2] Test: `gert resume` CLI command loads state and resumes in cmd/gert/resume_test.go
-- [ ] T051 [US2] Write k8s-pod-restart runbook exercising approval gate in runbooks/k8s-pod-restart.yaml
-- [ ] T052 [US2] Write 2+ scenario tests for k8s-pod-restart in runbooks/scenarios/k8s-pod-restart/
+- [X] T049 [US2] Add `governance.approval_timeout` parsing to schema in pkg/kernel/schema/types.go
+- [X] T050 [US2] Add `gert resume --run <id>` command to CLI in cmd/gert/main.go
+- [X] T050a [P] [US2] Test: `gert resume` CLI command loads state and resumes in cmd/gert/resume_test.go
+- [X] T051 [US2] Write k8s-pod-restart runbook exercising approval gate in runbooks/k8s-pod-restart.yaml
+- [X] T052 [US2] Write 2+ scenario tests for k8s-pod-restart in runbooks/scenarios/k8s-pod-restart/
 
 **Checkpoint**: Approval Submit/Wait works. State persists and resumes. ≥6 new tests pass.
 
@@ -150,8 +150,8 @@
 - [X] T071 [US3] Implement repeat block execution with max + until in pkg/kernel/engine/engine.go
 - [X] T072 [US3] Add `scope_export`, `visibility_applied`, `repeat_start`, `repeat_iteration` trace events in pkg/kernel/trace/trace.go
 - [X] T073 [US3] Add validation rules for scope/export/visibility/repeat in pkg/kernel/validate/domain.go
-- [ ] T074 [US3] Write multi-endpoint-sweep runbook using for_each.key in runbooks/multi-endpoint-sweep.yaml
-- [ ] T075 [US3] Write 2+ scenario tests for multi-endpoint-sweep in runbooks/scenarios/multi-endpoint-sweep/
+- [X] T074 [US3] Write multi-endpoint-sweep runbook using for_each.key in runbooks/multi-endpoint-sweep.yaml
+- [X] T075 [US3] Write 2+ scenario tests for multi-endpoint-sweep in runbooks/scenarios/multi-endpoint-sweep/
 
 **Checkpoint**: Scoped state + keyed fan-out + repeat working. MAD skeleton pattern can execute. ≥10 new tests pass.
 
@@ -165,20 +165,20 @@
 
 ### Tests for US4
 
-- [ ] T076 [P] [US4] Test: ResolveInputs resolution order (CLI → provider → default) in pkg/kernel/engine/resolve_test.go
-- [ ] T077 [P] [US4] Test: ResolveInputs emits input_resolved trace events in pkg/kernel/engine/resolve_test.go
-- [ ] T078 [P] [US4] Test: missing required input returns error in pkg/kernel/engine/resolve_test.go
-- [ ] T079 [P] [US4] Test: CLI var overrides provider binding in pkg/kernel/engine/resolve_test.go
+- [X] T076 [P] [US4] Test: ResolveInputs resolution order (CLI → provider → default) in pkg/kernel/engine/resolve_test.go
+- [X] T077 [P] [US4] Test: ResolveInputs emits input_resolved trace events in pkg/kernel/engine/resolve_test.go
+- [X] T078 [P] [US4] Test: missing required input returns error in pkg/kernel/engine/resolve_test.go
+- [X] T079 [P] [US4] Test: CLI var overrides provider binding in pkg/kernel/engine/resolve_test.go
 
 ### Implementation for US4
 
-- [ ] T080 [US4] Define `InputResolver` interface and `InputBinding` type in pkg/kernel/engine/resolve.go
-- [ ] T081 [US4] Implement `ResolveInputs()` kernel API with resolution order in pkg/kernel/engine/resolve.go
-- [ ] T082 [US4] Add `input_resolved` trace event type in pkg/kernel/trace/trace.go
-- [ ] T083 [US4] Add `From` field to `contract.ParamDef` in schema in pkg/kernel/contract/contract.go
-- [ ] T084 [US4] Wire ResolveInputs into cmd/gert exec flow in cmd/gert/main.go
-- [ ] T085 [US4] Write dns-http-chain runbook with mix of from: bindings in runbooks/dns-http-chain.yaml
-- [ ] T086 [US4] Write 2+ scenario tests for dns-http-chain in runbooks/scenarios/dns-http-chain/
+- [X] T080 [US4] Define `InputResolver` interface and `InputBinding` type in pkg/kernel/engine/resolve.go
+- [X] T081 [US4] Implement `ResolveInputs()` kernel API with resolution order in pkg/kernel/engine/resolve.go
+- [X] T082 [US4] Add `input_resolved` trace event type in pkg/kernel/trace/trace.go
+- [X] T083 [US4] Add `From` field to `contract.ParamDef` in schema in pkg/kernel/contract/contract.go
+- [X] T084 [US4] Wire ResolveInputs into cmd/gert exec flow in cmd/gert/main.go
+- [X] T085 [US4] Write dns-http-chain runbook with mix of from: bindings in runbooks/dns-http-chain.yaml
+- [X] T086 [US4] Write 2+ scenario tests for dns-http-chain in runbooks/scenarios/dns-http-chain/
 
 **Checkpoint**: Input resolution deterministic. Trace records sources. ≥4 new tests pass.
 
@@ -206,7 +206,7 @@
 - [X] T095 [US5] Add `Principal` struct to trace event types in pkg/kernel/trace/trace.go
 - [X] T096 [US5] Add run identity (actor, host, version, hashes) to run_start emission in pkg/kernel/engine/engine.go
 - [X] T097 [US5] Implement `gert trace verify` command in cmd/gert/main.go
-- [ ] T097a [P] [US5] Test: `gert trace verify` detects broken chain and validates signature in cmd/gert/trace_verify_test.go
+- [X] T097a [P] [US5] Test: `gert trace verify` detects broken chain and validates signature in cmd/gert/trace_verify_test.go
 - [X] T098 [US5] Add `GERT_TRACE_SIGNING_KEY` / `GERT_TRACE_SIGNING_KEY_ID` env var support in pkg/kernel/trace/trace.go
 - [X] T099 [US5] Update RunConfig to include Actor and Host fields in pkg/kernel/engine/engine.go
 
@@ -222,20 +222,20 @@
 
 ### Tests for US6
 
-- [ ] T100 [P] [US6] Test: TUI model initializes from runbook in pkg/ecosystem/tui/model_test.go
-- [ ] T101 [P] [US6] Test: TUI updates step status on trace events in pkg/ecosystem/tui/model_test.go
+- [X] T100 [P] [US6] Test: TUI model initializes from runbook in pkg/ecosystem/tui/model_test.go
+- [X] T101 [P] [US6] Test: TUI updates step status on trace events in pkg/ecosystem/tui/model_test.go
 
 ### Implementation for US6
 
-- [ ] T102 [US6] Implement TUI Bubble Tea model (app state, message types) in pkg/ecosystem/tui/model.go
-- [ ] T102a [US6] Add migration task: deprecate existing `pkg/tui/` — port reusable components (styles, layout patterns) to `pkg/ecosystem/tui/`, mark old package as legacy
-- [ ] T103 [US6] Implement step list view with status icons in pkg/ecosystem/tui/views.go
-- [ ] T104 [US6] Implement output panel view in pkg/ecosystem/tui/views.go
-- [ ] T105 [US6] Implement status bar view in pkg/ecosystem/tui/views.go
-- [ ] T106 [US6] Implement TUI ToolExecutor wrapper (feeds output to panel) in pkg/ecosystem/tui/executor.go
-- [ ] T107 [US6] Implement TUI ApprovalProvider (modal prompt in TUI) in pkg/ecosystem/tui/approval.go
-- [ ] T108 [US6] Wire TUI model to kernel engine in cmd/gert-tui/main.go
-- [ ] T109 [US6] Add key bindings (q, v, c, t, /) in pkg/ecosystem/tui/keys.go
+- [X] T102 [US6] Implement TUI Bubble Tea model (app state, message types) in pkg/ecosystem/tui/model.go
+- [X] T102a [US6] Add migration task: deprecate existing `pkg/tui/` — port reusable components (styles, layout patterns) to `pkg/ecosystem/tui/`, mark old package as legacy
+- [X] T103 [US6] Implement step list view with status icons in pkg/ecosystem/tui/views.go
+- [X] T104 [US6] Implement output panel view in pkg/ecosystem/tui/views.go
+- [X] T105 [US6] Implement status bar view in pkg/ecosystem/tui/views.go
+- [X] T106 [US6] Implement TUI ToolExecutor wrapper (feeds output to panel) in pkg/ecosystem/tui/executor.go
+- [X] T107 [US6] Implement TUI ApprovalProvider (modal prompt in TUI) in pkg/ecosystem/tui/approval.go
+- [X] T108 [US6] Wire TUI model to kernel engine in cmd/gert-tui/main.go
+- [X] T109 [US6] Add key bindings (q, v, c, t, /) in pkg/ecosystem/tui/keys.go
 
 **Checkpoint**: `gert-tui` runs a replay scenario with visual output. ≥2 new tests pass.
 
@@ -249,15 +249,15 @@
 
 ### Tests for US7
 
-- [ ] T110 [P] [US7] Test: MCP validate handler returns correct result in pkg/ecosystem/mcp/handlers_test.go
-- [ ] T111 [P] [US7] Test: MCP exec handler returns outcome in pkg/ecosystem/mcp/handlers_test.go
+- [X] T110 [P] [US7] Test: MCP validate handler returns correct result in pkg/ecosystem/mcp/handlers_test.go
+- [X] T111 [P] [US7] Test: MCP exec handler returns outcome in pkg/ecosystem/mcp/handlers_test.go
 
 ### Implementation for US7
 
-- [ ] T112 [US7] Implement MCP tool handlers (validate, exec, test, schema) in pkg/ecosystem/mcp/handlers.go
-- [ ] T113 [US7] Register MCP tools and resources in pkg/ecosystem/mcp/server.go
-- [ ] T114 [US7] Wire MCP server to stdio transport in cmd/gert-mcp/main.go
-- [ ] T115 [US7] Add MCP SDK dependency to go.mod
+- [X] T112 [US7] Implement MCP tool handlers (validate, exec, test, schema) in pkg/ecosystem/mcp/handlers.go
+- [X] T113 [US7] Register MCP tools and resources in pkg/ecosystem/mcp/server.go
+- [X] T114 [US7] Wire MCP server to stdio transport in cmd/gert-mcp/main.go
+- [X] T115 [US7] Add MCP SDK dependency to go.mod
 
 **Checkpoint**: `gert-mcp` responds to all 4 standard tool calls. ≥2 new tests pass.
 
@@ -271,16 +271,16 @@
 
 ### Tests for US8
 
-- [ ] T116 [P] [US8] Test: watch loop runs N times with interval in cmd/gert/watch_test.go
-- [ ] T117 [P] [US8] Test: watch stops on matching outcome category in cmd/gert/watch_test.go
-- [ ] T118 [P] [US8] Test: watch stops on engine error in cmd/gert/watch_test.go
+- [X] T116 [P] [US8] Test: watch loop runs N times with interval in cmd/gert/watch_test.go
+- [X] T117 [P] [US8] Test: watch stops on matching outcome category in cmd/gert/watch_test.go
+- [X] T118 [P] [US8] Test: watch stops on engine error in cmd/gert/watch_test.go
 
 ### Implementation for US8
 
-- [ ] T119 [US8] Implement `gert watch` command with interval loop in cmd/gert/main.go
-- [ ] T120 [US8] Implement `--stop-on` category matching in cmd/gert/watch.go
-- [ ] T121 [US8] Implement per-run trace file naming with timestamps in cmd/gert/watch.go
-- [ ] T122 [US8] Add one-line summary output per run in cmd/gert/watch.go
+- [X] T119 [US8] Implement `gert watch` command with interval loop in cmd/gert/main.go
+- [X] T120 [US8] Implement `--stop-on` category matching in cmd/gert/watch.go
+- [X] T121 [US8] Implement per-run trace file naming with timestamps in cmd/gert/watch.go
+- [X] T122 [US8] Add one-line summary output per run in cmd/gert/watch.go
 
 **Checkpoint**: Watch mode works with all stop semantics. ≥3 new tests pass.
 
@@ -290,26 +290,26 @@
 
 **Purpose**: Remaining runbooks, cleanup, documentation.
 
-- [ ] T123 [P] Write incident-triage runbook with extension metadata in runbooks/incident-triage.yaml
-- [ ] T124 [P] Write 2+ scenario tests for incident-triage in runbooks/scenarios/incident-triage/
-- [ ] T125 [P] Implement contract violation detection in engine after tool step execution in pkg/kernel/engine/engine.go
-- [ ] T125a [P] Implement `contract_violations: deny` governance matcher — promotes violations to step errors in pkg/kernel/governance/governance.go
-- [ ] T125b [P] Test: `contract_violations: deny` halts on violation in pkg/kernel/governance/governance_test.go
-- [ ] T126 [P] Test contract violation detection (undeclared outputs, missing outputs) in pkg/kernel/engine/engine_test.go
-- [ ] T127 [P] Implement probe mode (`--mode probe`) in engine in pkg/kernel/engine/engine.go
-- [ ] T128 [P] Test probe mode (writes skipped, read-only executed) in pkg/kernel/engine/engine_test.go
-- [ ] T129 [P] Implement extension runner JSON-RPC client in pkg/kernel/executor/extension.go
-- [ ] T130 [P] Test extension runner protocol (initialize/execute/shutdown) in pkg/kernel/executor/extension_test.go
-- [ ] T131 [P] Implement auto-record mode (Recorder wrapping ToolExecutor) in pkg/ecosystem/recorder/recorder.go
-- [ ] T131a [P] Wire secret redaction into recorder output — scenario files must never contain secret values in pkg/ecosystem/recorder/recorder.go
-- [ ] T131b [P] Test: recorded scenario redacts secrets from tool stdout in pkg/ecosystem/recorder/recorder_test.go
-- [ ] T132 [P] Test auto-record captures tool responses into scenario.yaml in pkg/ecosystem/recorder/recorder_test.go
-- [ ] T133 [P] Implement `gert diff` command for scenario diffing in cmd/gert/main.go
-- [ ] T133a [P] Test: `gert diff` detects outcome changes across scenarios in cmd/gert/diff_test.go
-- [ ] T134 [P] Implement `gert outcomes` command for aggregation in cmd/gert/main.go
-- [ ] T134a [P] Test: `gert outcomes` aggregates from trace files correctly in cmd/gert/outcomes_test.go
-- [ ] T135 Run quickstart.md validation — execute all scenarios in quickstart end-to-end
-- [ ] T136 Verify all existing 72 tests + new tests pass: `go test ./pkg/kernel/... -count=1`
+- [X] T123 [P] Write incident-triage runbook with extension metadata in runbooks/incident-triage.yaml
+- [X] T124 [P] Write 2+ scenario tests for incident-triage in runbooks/scenarios/incident-triage/
+- [X] T125 [P] Implement contract violation detection in engine after tool step execution in pkg/kernel/engine/engine.go
+- [X] T125a [P] Implement `contract_violations: deny` governance matcher — promotes violations to step errors in pkg/kernel/governance/governance.go
+- [X] T125b [P] Test: `contract_violations: deny` halts on violation in pkg/kernel/governance/governance_test.go
+- [X] T126 [P] Test contract violation detection (undeclared outputs, missing outputs) in pkg/kernel/engine/engine_test.go
+- [X] T127 [P] Implement probe mode (`--mode probe`) in engine in pkg/kernel/engine/engine.go
+- [X] T128 [P] Test probe mode (writes skipped, read-only executed) in pkg/kernel/engine/engine_test.go
+- [X] T129 [P] Implement extension runner JSON-RPC client in pkg/kernel/executor/extension.go
+- [X] T130 [P] Test extension runner protocol (initialize/execute/shutdown) in pkg/kernel/executor/extension_test.go
+- [X] T131 [P] Implement auto-record mode (Recorder wrapping ToolExecutor) in pkg/ecosystem/recorder/recorder.go
+- [X] T131a [P] Wire secret redaction into recorder output — scenario files must never contain secret values in pkg/ecosystem/recorder/recorder.go
+- [X] T131b [P] Test: recorded scenario redacts secrets from tool stdout in pkg/ecosystem/recorder/recorder_test.go
+- [X] T132 [P] Test auto-record captures tool responses into scenario.yaml in pkg/ecosystem/recorder/recorder_test.go
+- [X] T133 [P] Implement `gert diff` command for scenario diffing in cmd/gert/main.go
+- [X] T133a [P] Test: `gert diff` detects outcome changes across scenarios in cmd/gert/diff_test.go
+- [X] T134 [P] Implement `gert outcomes` command for aggregation in cmd/gert/main.go
+- [X] T134a [P] Test: `gert outcomes` aggregates from trace files correctly in cmd/gert/outcomes_test.go
+- [X] T135 Run quickstart.md validation — execute all scenarios in quickstart end-to-end
+- [X] T136 Verify all existing 72 tests + new tests pass: `go test ./pkg/kernel/... -count=1`
 
 ---
 

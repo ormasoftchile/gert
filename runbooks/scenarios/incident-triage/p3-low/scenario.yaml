@@ -1,0 +1,11 @@
+# Scenario: P3 low-priority incident — just log
+inputs:
+  incident_id: INC-042
+  severity: p3
+
+tool_responses:
+  "curl:get":
+    - exit_code: 0
+      stdout: '{"id":"INC-042","status":"open","severity":"p3"}'
+      outputs:
+        status: "open"

@@ -19,6 +19,8 @@ contract:
   outputs:
     result:
       type: string
+    pod_status:
+      type: string
 actions:
   get:
     description: Get a Kubernetes resource

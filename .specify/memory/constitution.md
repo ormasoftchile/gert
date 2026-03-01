@@ -136,4 +136,14 @@ This constitution supersedes all ad-hoc practices. Amendments require:
 
 All implementation tasks MUST verify compliance with these principles. Complexity beyond what's specified MUST be justified in a Complexity Tracking table.
 
+
+## Completion Contract
+
+A task MAY be marked complete only if:
+
+- The artifact was executed in a representative environment
+- Expected behavior was observed
+- Evidence is attached (logs, output, screenshots, traces)
+- If execution fails, the task remains IN PROGRESS
+
 **Version**: 1.0.0 | **Ratified**: 2026-02-28 | **Last Amended**: 2026-02-28

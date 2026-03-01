@@ -20,6 +20,7 @@ type ParamDef struct {
 	Required    bool   `yaml:"required,omitempty"    json:"required,omitempty"`
 	Default     any    `yaml:"default,omitempty"     json:"default,omitempty"`
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	From        string `yaml:"from,omitempty"         json:"from,omitempty"`
 }
 
 // RiskLevel classifies a contract's risk based on its behavioural properties.
@@ -71,13 +72,12 @@ func (c *Contract) Risk() RiskLevel {
 
 // Resolved returns a copy of this contract with all nil fields replaced by
 // their defaults (side_effects=true, deterministic=false, idempotent=false).
+// If side_effects is set but effects is nil, auto-migrates to effects: [unknown].
 func (c *Contract) Resolved() Contract {
 	out := *c
 	out.SideEffects = boolPtr(c.getBool(c.SideEffects, true))
 	out.Deterministic = boolPtr(c.getBool(c.Deterministic, false))
 	out.Idempotent = boolPtr(c.getBool(c.Idempotent, false))
-	// Only default Effects to empty if it was explicitly set (not nil)
-	// Nil Effects means legacy contract — don't touch it
 	if out.Reads == nil {
 		out.Reads = []string{}
 	}

@@ -44,13 +44,15 @@ type Meta struct {
 
 // GovernancePolicy defines risk-based and contract-based governance rules.
 type GovernancePolicy struct {
-	Rules []GovernanceRule `yaml:"rules" json:"rules"`
+	Rules           []GovernanceRule `yaml:"rules" json:"rules"`
+	ApprovalTimeout string           `yaml:"approval_timeout,omitempty" json:"approval_timeout,omitempty"` // e.g. "30m", parsed as time.Duration
 }
 
 // GovernanceRule is a single governance policy rule.
 type GovernanceRule struct {
 	Risk               string              `yaml:"risk,omitempty"     json:"risk,omitempty"`
 	Effects            []string            `yaml:"effects,omitempty"  json:"effects,omitempty"`
+	Writes             []string            `yaml:"writes,omitempty"   json:"writes,omitempty"`
 	Contract           *GovernanceContract `yaml:"contract,omitempty" json:"contract,omitempty"`
 	Default            string              `yaml:"default,omitempty"  json:"default,omitempty"`
 	Action             string              `yaml:"action,omitempty"   json:"action,omitempty"`
@@ -107,6 +109,9 @@ type Step struct {
 
 	// ForEach modifier
 	ForEach *ForEach `yaml:"for_each,omitempty" json:"for_each,omitempty"`
+
+	// Repeat block — bounded multi-step iteration
+	Repeat *RepeatBlock `yaml:"repeat,omitempty" json:"repeat,omitempty"`
 
 	// Tool step
 	Tool       string         `yaml:"tool,omitempty"   json:"tool,omitempty"`
@@ -181,6 +186,13 @@ type Visibility struct {
 	Deny  []string `yaml:"deny,omitempty"  json:"deny,omitempty"`  // glob patterns (deny overrides allow)
 }
 
+// RepeatBlock defines bounded multi-step iteration.
+type RepeatBlock struct {
+	Max   int    `yaml:"max"             json:"max"`             // maximum iterations (required, guarantees termination)
+	Until string `yaml:"until,omitempty" json:"until,omitempty"` // expression; true = stop early
+	Steps []Step `yaml:"steps"           json:"steps"`           // steps to execute per iteration
+}
+
 // ---------------------------------------------------------------------------
 // Branch (used by branch + parallel steps)
 // ---------------------------------------------------------------------------
@@ -235,6 +247,7 @@ type EvidenceRequirement struct {
 	Name  string   `yaml:"name"             json:"name"`
 	Items []string `yaml:"items,omitempty"  json:"items,omitempty"`
 }
+
 // ---------------------------------------------------------------------------
 // Secrets
 // ---------------------------------------------------------------------------

@@ -170,3 +170,32 @@ func TestEvaluate_EffectsBased(t *testing.T) {
 		t.Errorf("kubernetes+staging should default allow, got %q", d3.Action)
 	}
 }
+
+// T125b: HasContractViolationsDeny
+func TestHasContractViolationsDeny(t *testing.T) {
+	// Policy with deny
+	policy := &schema.GovernancePolicy{
+		Rules: []schema.GovernanceRule{
+			{ContractViolations: "deny"},
+			{Default: "allow"},
+		},
+	}
+	if !HasContractViolationsDeny(policy) {
+		t.Error("expected true for contract_violations: deny")
+	}
+
+	// Policy without deny
+	policy2 := &schema.GovernancePolicy{
+		Rules: []schema.GovernanceRule{
+			{Default: "allow"},
+		},
+	}
+	if HasContractViolationsDeny(policy2) {
+		t.Error("expected false without contract_violations: deny")
+	}
+
+	// Nil policy
+	if HasContractViolationsDeny(nil) {
+		t.Error("expected false for nil policy")
+	}
+}

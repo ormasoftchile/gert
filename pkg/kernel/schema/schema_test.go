@@ -192,3 +192,31 @@ actions:
 		t.Error("expected 'check' action")
 	}
 }
+
+// T053: Scope field normalizes `/` to `.`
+func TestLoad_ScopeNormalization(t *testing.T) {
+	yaml := `
+apiVersion: kernel/v0
+meta:
+  name: test-scope
+steps:
+  - id: scoped
+    type: assert
+    scope: "round/0"
+    assert:
+      - type: equals
+        value: a
+        expected: a
+  - type: end
+    outcome:
+      category: no_action
+      code: done
+`
+	rb, err := Load(strings.NewReader(yaml))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rb.Steps[0].Scope != "round.0" {
+		t.Errorf("scope = %q, want 'round.0' (normalized from round/0)", rb.Steps[0].Scope)
+	}
+}

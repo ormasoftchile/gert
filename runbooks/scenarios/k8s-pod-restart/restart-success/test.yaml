@@ -1,0 +1,12 @@
+# Test: restart success — pod running, delete succeeds, verify passes
+description: Running pod gets restarted successfully
+expected_status: completed
+expected_outcome: resolved
+expected_code: pod_restarted
+must_reach:
+  - get_pod
+  - delete_pod
+  - verify_pod
+  - restarted_end
+must_not_reach:
+  - not_running_end

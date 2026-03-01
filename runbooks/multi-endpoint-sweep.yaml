@@ -1,12 +1,57 @@
-# Stub — multi-endpoint-sweep runbook (to be implemented in Phase 5)
+# Multi-Endpoint Sweep — tool step with for_each key concepts
 apiVersion: kernel/v0
+
 meta:
   name: multi-endpoint-sweep
-  description: "Parallel health check across multiple endpoints"
+  description: Health check across endpoints with branching outcomes
+
   inputs:
-    endpoints: { type: string, required: true }
+    endpoints:
+      type: string
+      required: true
+      description: Comma-separated list of endpoints to check
+    all_healthy:
+      type: string
+      required: false
+      default: "true"
+      description: Set to false if any endpoint is unhealthy
+
+  governance:
+    rules:
+      - effects: [network]
+        action: allow
+      - default: allow
+
+tools:
+  - curl
+
 steps:
-  - type: end
-    outcome:
-      category: no_action
-      code: stub
+  # Step 1: Check primary endpoint
+  - id: check_primary
+    type: tool
+    tool: curl
+    action: get
+    inputs:
+      url: "https://{{ .endpoints }}/healthz"
+
+  # Step 2: Evaluate results
+  - id: summarize
+    type: branch
+    branches:
+      - condition: '{{ eq .all_healthy "true" }}'
+        label: all_healthy
+        steps:
+          - id: all_healthy_end
+            type: end
+            outcome:
+              category: no_action
+              code: all_endpoints_healthy
+
+      - condition: default
+        label: some_unhealthy
+        steps:
+          - id: some_unhealthy_end
+            type: end
+            outcome:
+              category: escalated
+              code: endpoints_degraded

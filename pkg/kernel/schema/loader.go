@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -27,7 +28,33 @@ func Load(r io.Reader) (*Runbook, error) {
 	if err := dec.Decode(&rb); err != nil {
 		return nil, fmt.Errorf("structural decode: %w", err)
 	}
+	normalizeScopes(&rb)
 	return &rb, nil
+}
+
+// normalizeScopes converts `/` to `.` in all step scope paths.
+func normalizeScopes(rb *Runbook) {
+	walkAllSteps(rb.Steps, func(s *Step) {
+		if s.Scope != "" {
+			s.Scope = normalizeScopePath(s.Scope)
+		}
+	})
+}
+
+func normalizeScopePath(p string) string {
+	return strings.ReplaceAll(p, "/", ".")
+}
+
+func walkAllSteps(steps []Step, fn func(*Step)) {
+	for i := range steps {
+		fn(&steps[i])
+		for j := range steps[i].Branches {
+			walkAllSteps(steps[i].Branches[j].Steps, fn)
+		}
+		if steps[i].Repeat != nil {
+			walkAllSteps(steps[i].Repeat.Steps, fn)
+		}
+	}
 }
 
 // LoadToolFile reads and structurally decodes a tool/v0 YAML definition.

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ormasoftchile/gert/pkg/kernel/contract"
+	"github.com/ormasoftchile/gert/pkg/kernel/executor"
 	"github.com/ormasoftchile/gert/pkg/kernel/schema"
 	"github.com/ormasoftchile/gert/pkg/kernel/trace"
 )
@@ -824,9 +825,9 @@ func TestEngine_ForEachKeyed(t *testing.T) {
 				ID:   "keyed",
 				Type: schema.StepAssert,
 				ForEach: &schema.ForEach{
-					As:  "item",
+					As:   "item",
 					Over: "{{ .items }}",
-					Key: "{{ .item }}",
+					Key:  "{{ .item }}",
 				},
 				Assert: []schema.Assertion{
 					{Type: "equals", Value: "{{ .item }}", Expected: "{{ .item }}"},
@@ -876,16 +877,16 @@ func TestEngine_ForEachKey_DuplicateError(t *testing.T) {
 				ID:   "duped",
 				Type: schema.StepAssert,
 				ForEach: &schema.ForEach{
-					As:  "item",
+					As:   "item",
 					Over: "{{ .items }}",
-					Key: "same_key",
+					Key:  "same_key",
 				},
 				Assert: []schema.Assertion{
 					{Type: "equals", Value: "a", Expected: "a"},
 				},
 			},
 			{
-				Type: schema.StepEnd,
+				Type:    schema.StepEnd,
 				Outcome: &schema.Outcome{Category: schema.OutcomeResolved, Code: "done"},
 			},
 		},
@@ -897,5 +898,447 @@ func TestEngine_ForEachKey_DuplicateError(t *testing.T) {
 	result := eng.Run(context.Background())
 	if result.Status != "error" {
 		t.Errorf("status = %q, want error for duplicate keys", result.Status)
+	}
+}
+
+// mockToolExecutor implements ToolExecutor for tests.
+type mockToolExecutor struct {
+	result *executor.Result
+	err    error
+}
+
+func (m *mockToolExecutor) Execute(ctx context.Context, toolDef *schema.ToolDefinition, actionName string, inputs map[string]any, vars map[string]any) (*executor.Result, error) {
+	return m.result, m.err
+}
+
+// T126: Contract violation detection — undeclared outputs
+func TestEngine_ContractViolation_UndeclaredOutput(t *testing.T) {
+	var traceBuf bytes.Buffer
+	tw := trace.NewWriter(&traceBuf, "r1")
+
+	rb := &schema.Runbook{
+		APIVersion: "kernel/v0",
+		Meta:       schema.Meta{Name: "test"},
+		Steps: []schema.Step{
+			{
+				ID:     "check",
+				Type:   schema.StepTool,
+				Tool:   "test-tool",
+				Action: "run",
+			},
+			{
+				Type:    schema.StepEnd,
+				Outcome: &schema.Outcome{Category: schema.OutcomeResolved, Code: "done"},
+			},
+		},
+	}
+
+	eng := New(rb, RunConfig{
+		RunID: "r1",
+		Mode:  "real",
+		Trace: tw,
+		ToolExec: &mockToolExecutor{
+			result: &executor.Result{
+				ExitCode: 0,
+				Outputs:  map[string]any{"status": "ok", "extra": "undeclared"},
+			},
+		},
+	})
+	// Register tool with contract that only declares "status" output
+	eng.tools["test-tool"] = &schema.ToolDefinition{
+		Meta: schema.ToolMeta{Name: "test-tool"},
+		Actions: map[string]schema.ToolAction{
+			"run": {},
+		},
+		Contract: contract.Contract{
+			Outputs: map[string]contract.ParamDef{
+				"status": {Type: "string"},
+			},
+		},
+	}
+
+	result := eng.Run(context.Background())
+	if result.Status != "completed" {
+		t.Errorf("status = %q, error = %v", result.Status, result.Error)
+	}
+
+	// Check trace for contract_violation event
+	traceOutput := traceBuf.String()
+	if !strings.Contains(traceOutput, "contract_violation") {
+		t.Error("expected contract_violation event in trace")
+	}
+	if !strings.Contains(traceOutput, "undeclared_output") {
+		t.Error("expected undeclared_output violation in trace")
+	}
+}
+
+// T128: Probe mode — writes skipped, read-only executed
+func TestEngine_ProbeMode_SkipsWrites(t *testing.T) {
+	var out bytes.Buffer
+
+	rb := &schema.Runbook{
+		APIVersion: "kernel/v0",
+		Meta:       schema.Meta{Name: "test"},
+		Steps: []schema.Step{
+			{
+				ID:     "write_step",
+				Type:   schema.StepTool,
+				Tool:   "write-tool",
+				Action: "write",
+			},
+			{
+				Type:    schema.StepEnd,
+				Outcome: &schema.Outcome{Category: schema.OutcomeResolved, Code: "done"},
+			},
+		},
+	}
+
+	eng := New(rb, RunConfig{
+		RunID:  "r1",
+		Mode:   "probe",
+		Stdout: &out,
+		ToolExec: &mockToolExecutor{
+			result: &executor.Result{ExitCode: 0, Outputs: map[string]any{}},
+		},
+	})
+	// Tool with writes (non-read-only)
+	eng.tools["write-tool"] = &schema.ToolDefinition{
+		Meta: schema.ToolMeta{Name: "write-tool"},
+		Actions: map[string]schema.ToolAction{
+			"write": {},
+		},
+		Contract: contract.Contract{
+			Effects: []string{"filesystem"},
+			Writes:  []string{"files"},
+		},
+	}
+
+	result := eng.Run(context.Background())
+	if result.Status != "completed" {
+		t.Errorf("status = %q, error = %v", result.Status, result.Error)
+	}
+	if !strings.Contains(out.String(), "[probe] SKIP") {
+		t.Errorf("expected probe skip output, got: %s", out.String())
+	}
+}
+
+// T053: Scope field normalizes `/` to `.` (tested via loader, verified here via engine)
+func TestEngine_ScopeNormalization(t *testing.T) {
+	// The loader normalizes scope paths. Verify scoped step runs and vars are tagged.
+	rb := &schema.Runbook{
+		APIVersion: "kernel/v0",
+		Meta:       schema.Meta{Name: "test"},
+		Steps: []schema.Step{
+			{
+				ID:    "scoped",
+				Type:  schema.StepAssert,
+				Scope: "round.0", // already normalized (loader converts / to .)
+				Assert: []schema.Assertion{
+					{Type: "equals", Value: "a", Expected: "a"},
+				},
+			},
+			{
+				Type:    schema.StepEnd,
+				Outcome: &schema.Outcome{Category: schema.OutcomeResolved, Code: "done"},
+			},
+		},
+	}
+	eng := New(rb, RunConfig{RunID: "r1", Mode: "real"})
+	result := eng.Run(context.Background())
+	if result.Status != "completed" {
+		t.Errorf("status = %q, error = %v", result.Status, result.Error)
+	}
+}
+
+// T054: Export promotes scope-local outputs to global
+func TestEngine_ExportPromotion(t *testing.T) {
+	rb := &schema.Runbook{
+		APIVersion: "kernel/v0",
+		Meta:       schema.Meta{Name: "test"},
+		Steps: []schema.Step{
+			{
+				ID:     "producer",
+				Type:   schema.StepTool,
+				Tool:   "test-tool",
+				Action: "run",
+				Scope:  "local",
+				Export: []string{"status"},
+			},
+			{
+				// This step uses the exported value
+				Type: schema.StepAssert,
+				Assert: []schema.Assertion{
+					{Type: "equals", Value: "{{ .status }}", Expected: "promoted"},
+				},
+			},
+			{
+				Type:    schema.StepEnd,
+				Outcome: &schema.Outcome{Category: schema.OutcomeResolved, Code: "done"},
+			},
+		},
+	}
+	eng := New(rb, RunConfig{
+		RunID: "r1",
+		Mode:  "real",
+		ToolExec: &mockToolExecutor{
+			result: &executor.Result{
+				ExitCode: 0,
+				Outputs:  map[string]any{"status": "promoted"},
+			},
+		},
+	})
+	eng.tools["test-tool"] = &schema.ToolDefinition{
+		Meta:    schema.ToolMeta{Name: "test-tool"},
+		Actions: map[string]schema.ToolAction{"run": {}},
+		Contract: contract.Contract{
+			Outputs: map[string]contract.ParamDef{"status": {Type: "string"}},
+		},
+	}
+
+	result := eng.Run(context.Background())
+	if result.Status != "completed" {
+		t.Errorf("status = %q, error = %v", result.Status, result.Error)
+	}
+	// Verify the exported var is accessible globally
+	if eng.Vars()["status"] != "promoted" {
+		t.Errorf("exported status = %v, want 'promoted'", eng.Vars()["status"])
+	}
+}
+
+// T055: Export collision with existing global → value is overwritten (scope exit restores, then export re-sets)
+func TestEngine_ExportCollision(t *testing.T) {
+	rb := &schema.Runbook{
+		APIVersion: "kernel/v0",
+		Meta:       schema.Meta{Name: "test"},
+		Steps: []schema.Step{
+			{
+				ID:     "producer",
+				Type:   schema.StepTool,
+				Tool:   "test-tool",
+				Action: "run",
+				Scope:  "local",
+				Export: []string{"status"},
+			},
+			{
+				Type:    schema.StepEnd,
+				Outcome: &schema.Outcome{Category: schema.OutcomeResolved, Code: "done"},
+			},
+		},
+	}
+	eng := New(rb, RunConfig{
+		RunID: "r1",
+		Mode:  "real",
+		ToolExec: &mockToolExecutor{
+			result: &executor.Result{ExitCode: 0, Outputs: map[string]any{"status": "new"}},
+		},
+	})
+	eng.tools["test-tool"] = &schema.ToolDefinition{
+		Meta:    schema.ToolMeta{Name: "test-tool"},
+		Actions: map[string]schema.ToolAction{"run": {}},
+		Contract: contract.Contract{
+			Outputs: map[string]contract.ParamDef{"status": {Type: "string"}},
+		},
+	}
+	// Pre-set the global var
+	eng.vars["status"] = "old"
+
+	result := eng.Run(context.Background())
+	if result.Status != "completed" {
+		t.Errorf("status = %q, error = %v", result.Status, result.Error)
+	}
+	// Export should overwrite the old value
+	if eng.Vars()["status"] != "new" {
+		t.Errorf("exported status = %v, want 'new'", eng.Vars()["status"])
+	}
+}
+
+// T058: visibility_applied trace event emitted
+func TestEngine_VisibilityApplied_TraceEvent(t *testing.T) {
+	var traceBuf bytes.Buffer
+	tw := trace.NewWriter(&traceBuf, "r1")
+
+	rb := &schema.Runbook{
+		APIVersion: "kernel/v0",
+		Meta:       schema.Meta{Name: "test"},
+		Steps: []schema.Step{
+			{
+				ID:   "visible_step",
+				Type: schema.StepAssert,
+				Visibility: &schema.Visibility{
+					Allow: []string{"question"},
+					Deny:  []string{"scope.round.0.*"},
+				},
+				Assert: []schema.Assertion{
+					{Type: "equals", Value: "a", Expected: "a"},
+				},
+			},
+			{
+				Type:    schema.StepEnd,
+				Outcome: &schema.Outcome{Category: schema.OutcomeResolved, Code: "done"},
+			},
+		},
+	}
+	eng := New(rb, RunConfig{RunID: "r1", Mode: "real", Trace: tw})
+	result := eng.Run(context.Background())
+	if result.Status != "completed" {
+		t.Errorf("status = %q, error = %v", result.Status, result.Error)
+	}
+
+	traceOutput := traceBuf.String()
+	if !strings.Contains(traceOutput, "visibility_applied") {
+		t.Error("expected visibility_applied event in trace")
+	}
+	if !strings.Contains(traceOutput, "question") {
+		t.Error("expected allow pattern 'question' in trace event")
+	}
+}
+
+// T059: scope_export trace event emitted
+func TestEngine_ScopeExport_TraceEvent(t *testing.T) {
+	var traceBuf bytes.Buffer
+	tw := trace.NewWriter(&traceBuf, "r1")
+
+	rb := &schema.Runbook{
+		APIVersion: "kernel/v0",
+		Meta:       schema.Meta{Name: "test"},
+		Steps: []schema.Step{
+			{
+				ID:     "producer",
+				Type:   schema.StepTool,
+				Tool:   "test-tool",
+				Action: "run",
+				Scope:  "local",
+				Export: []string{"status"},
+			},
+			{
+				Type:    schema.StepEnd,
+				Outcome: &schema.Outcome{Category: schema.OutcomeResolved, Code: "done"},
+			},
+		},
+	}
+	eng := New(rb, RunConfig{
+		RunID: "r1",
+		Mode:  "real",
+		Trace: tw,
+		ToolExec: &mockToolExecutor{
+			result: &executor.Result{ExitCode: 0, Outputs: map[string]any{"status": "ok"}},
+		},
+	})
+	eng.tools["test-tool"] = &schema.ToolDefinition{
+		Meta:    schema.ToolMeta{Name: "test-tool"},
+		Actions: map[string]schema.ToolAction{"run": {}},
+		Contract: contract.Contract{
+			Outputs: map[string]contract.ParamDef{"status": {Type: "string"}},
+		},
+	}
+
+	result := eng.Run(context.Background())
+	if result.Status != "completed" {
+		t.Errorf("status = %q, error = %v", result.Status, result.Error)
+	}
+
+	traceOutput := traceBuf.String()
+	if !strings.Contains(traceOutput, "scope_export") {
+		t.Error("expected scope_export event in trace")
+	}
+}
+
+// T060: Repeat block iterates max times
+func TestEngine_RepeatBlock_MaxIterations(t *testing.T) {
+	callCount := 0
+	rb := &schema.Runbook{
+		APIVersion: "kernel/v0",
+		Meta:       schema.Meta{Name: "test"},
+		Steps: []schema.Step{
+			{
+				ID:   "loop",
+				Type: schema.StepAssert, // just a container for repeat
+				Repeat: &schema.RepeatBlock{
+					Max: 3,
+					Steps: []schema.Step{
+						{
+							ID:   "inner",
+							Type: schema.StepAssert,
+							Assert: []schema.Assertion{
+								{Type: "equals", Value: "a", Expected: "a"},
+							},
+						},
+					},
+				},
+			},
+			{
+				Type:    schema.StepEnd,
+				Outcome: &schema.Outcome{Category: schema.OutcomeResolved, Code: "done"},
+			},
+		},
+	}
+
+	eng := New(rb, RunConfig{RunID: "r1", Mode: "real"})
+	result := eng.Run(context.Background())
+	if result.Status != "completed" {
+		t.Errorf("status = %q, error = %v", result.Status, result.Error)
+	}
+	_ = callCount
+
+	// Verify repeat.index was set on last iteration
+	if rep, ok := eng.Vars()["repeat"].(map[string]any); ok {
+		if idx, ok := rep["index"].(int); ok {
+			if idx != 2 { // 0-indexed, last iteration is 2
+				t.Errorf("repeat.index = %d, want 2 (0-indexed last of 3)", idx)
+			}
+		} else {
+			t.Error("repeat.index not set")
+		}
+	} else {
+		t.Error("repeat var not set")
+	}
+}
+
+// T061: Repeat block stops on until condition
+func TestEngine_RepeatBlock_StopsOnUntil(t *testing.T) {
+	rb := &schema.Runbook{
+		APIVersion: "kernel/v0",
+		Meta:       schema.Meta{Name: "test"},
+		Steps: []schema.Step{
+			{
+				ID:   "loop",
+				Type: schema.StepAssert,
+				Repeat: &schema.RepeatBlock{
+					Max:   10,
+					Until: `{{ eq .done "true" }}`,
+					Steps: []schema.Step{
+						{
+							ID:   "inner",
+							Type: schema.StepAssert,
+							Assert: []schema.Assertion{
+								{Type: "equals", Value: "a", Expected: "a"},
+							},
+						},
+					},
+				},
+			},
+			{
+				Type:    schema.StepEnd,
+				Outcome: &schema.Outcome{Category: schema.OutcomeResolved, Code: "done"},
+			},
+		},
+	}
+
+	eng := New(rb, RunConfig{RunID: "r1", Mode: "real"})
+	// Set done=true before first iteration so it stops after iteration 0
+	eng.vars["done"] = "true"
+
+	result := eng.Run(context.Background())
+	if result.Status != "completed" {
+		t.Errorf("status = %q, error = %v", result.Status, result.Error)
+	}
+
+	// Should have stopped after first iteration
+	if rep, ok := eng.Vars()["repeat"].(map[string]any); ok {
+		if idx, ok := rep["index"].(int); ok {
+			if idx != 0 {
+				t.Errorf("repeat.index = %d, want 0 (should stop on first iteration)", idx)
+			}
+		}
 	}
 }

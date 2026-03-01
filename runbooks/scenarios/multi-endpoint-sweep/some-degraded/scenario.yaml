@@ -1,0 +1,12 @@
+# Scenario: One endpoint degraded
+inputs:
+  endpoints: "api.example.com,web.example.com"
+  all_healthy: "false"
+
+tool_responses:
+  "curl:get":
+    - exit_code: 0
+      stdout: "503"
+      outputs:
+        status_code: "503"
+        response: "Service Unavailable"

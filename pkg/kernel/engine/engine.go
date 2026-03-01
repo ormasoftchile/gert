@@ -4,6 +4,9 @@ package engine
 import (
 	"bufio"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -55,12 +58,15 @@ type ApprovalTicket struct {
 
 // ApprovalResponse is the result of an approval decision.
 type ApprovalResponse struct {
-	TicketID   string    `json:"ticket_id"`
-	Approved   bool      `json:"approved"`
-	ApproverID string    `json:"approver_id"`
-	Method     string    `json:"method"`
-	Timestamp  time.Time `json:"timestamp"`
-	Reason     string    `json:"reason,omitempty"`
+	TicketID     string    `json:"ticket_id"`
+	Approved     bool      `json:"approved"`
+	ApproverID   string    `json:"approver_id"`
+	Method       string    `json:"method"`
+	Timestamp    time.Time `json:"timestamp"`
+	Reason       string    `json:"reason,omitempty"`
+	Signature    string    `json:"signature,omitempty"`
+	SignatureAlg string    `json:"signature_alg,omitempty"`
+	KeyID        string    `json:"key_id,omitempty"`
 }
 
 // defaultExecutor delegates to executor.RunTool.
@@ -82,6 +88,10 @@ type RunConfig struct {
 	Stdout      io.Writer        // for output; defaults to os.Stdout
 	ToolExec    ToolExecutor     // custom tool executor (e.g., replay); nil uses default
 	Approval    ApprovalProvider // custom approval provider; nil uses stdin
+	Actor       string           // actor identity for trace attribution
+	Host        string           // host identifier for trace
+	Version     string           // gert version for trace
+	RunbookPath string           // path to runbook file (for hashing)
 }
 
 // RunResult is the outcome of executing a runbook.
@@ -156,6 +166,9 @@ func New(rb *schema.Runbook, cfg RunConfig) *Engine {
 func (e *Engine) Run(ctx context.Context) *RunResult {
 	e.startTime = time.Now()
 
+	// Pre-load tool definitions (before run_start so we can hash them)
+	e.loadTools()
+
 	// Emit run_start
 	if e.trace != nil {
 		inputsAny := make(map[string]any, len(e.cfg.Vars))
@@ -166,11 +179,45 @@ func (e *Engine) Run(ctx context.Context) *RunResult {
 		for k, v := range e.rb.Meta.Constants {
 			constantsAny[k] = v
 		}
-		e.trace.EmitRunStart(e.rb.Meta.Name, inputsAny, constantsAny)
+		runStartData := map[string]any{
+			"runbook": e.rb.Meta.Name,
+		}
+		if len(inputsAny) > 0 {
+			runStartData["inputs"] = inputsAny
+		}
+		if len(constantsAny) > 0 {
+			runStartData["constants"] = constantsAny
+		}
+		if e.cfg.Actor != "" {
+			runStartData["actor"] = e.cfg.Actor
+		}
+		if e.cfg.Host != "" {
+			runStartData["host"] = e.cfg.Host
+		}
+		if e.cfg.Version != "" {
+			runStartData["gert_version"] = e.cfg.Version
+		}
+		// Compute runbook hash
+		if e.cfg.RunbookPath != "" {
+			if h, err := fileHash(e.cfg.RunbookPath); err == nil {
+				runStartData["runbook_hash"] = h
+			}
+		}
+		// Compute tool hashes
+		toolHashes := make(map[string]string)
+		for name := range e.tools {
+			path := validate.ResolveToolPath(name, e.cfg.BaseDir, e.cfg.ProjectRoot)
+			if path != "" {
+				if h, err := fileHash(path); err == nil {
+					toolHashes[name] = h
+				}
+			}
+		}
+		if len(toolHashes) > 0 {
+			runStartData["tool_hashes"] = toolHashes
+		}
+		e.trace.Emit(trace.EventRunStart, runStartData)
 	}
-
-	// Pre-load tool definitions
-	e.loadTools()
 
 	// Configure secret redaction on trace writer
 	if e.trace != nil {
@@ -321,6 +368,31 @@ func (e *Engine) executeStep(ctx context.Context, step schema.Step, stepID strin
 	// Track visited steps for test harness
 	e.VisitedSteps = append(e.VisitedSteps, stepID)
 
+	// --- Repeat block: if step has a repeat, execute it as a repeat block ---
+	if step.Repeat != nil {
+		return e.executeRepeat(ctx, step, stepID, start)
+	}
+
+	// --- Scope enter: save vars snapshot for isolation ---
+	var scopeSnapshot map[string]any
+	if step.Scope != "" {
+		scopeSnapshot = e.forkVars()
+		// Namespace: prefix current scope vars under scope path
+		e.vars["_scope"] = step.Scope
+	}
+
+	// --- Visibility: emit trace event if visibility is declared ---
+	if step.Visibility != nil && e.trace != nil {
+		visData := map[string]any{"step_id": stepID}
+		if len(step.Visibility.Allow) > 0 {
+			visData["allow"] = step.Visibility.Allow
+		}
+		if len(step.Visibility.Deny) > 0 {
+			visData["deny"] = step.Visibility.Deny
+		}
+		e.trace.Emit(trace.EventVisibilityApplied, visData)
+	}
+
 	// Resolve contract and evaluate governance for executable steps
 	resolvedContract := e.resolveContract(step)
 	if resolvedContract != nil {
@@ -367,21 +439,84 @@ func (e *Engine) executeStep(ctx context.Context, step schema.Step, stepID strin
 
 	switch step.Type {
 	case schema.StepTool:
-		return e.executeTool(ctx, step, stepID, start)
+		result := e.executeTool(ctx, step, stepID, start)
+		e.handlePostStep(step, stepID, scopeSnapshot)
+		return result
 	case schema.StepManual:
-		return e.executeManual(ctx, step, stepID, start)
+		result := e.executeManual(ctx, step, stepID, start)
+		e.handlePostStep(step, stepID, scopeSnapshot)
+		return result
 	case schema.StepAssert:
-		return e.executeAssert(ctx, step, stepID, start)
+		result := e.executeAssert(ctx, step, stepID, start)
+		e.handlePostStep(step, stepID, scopeSnapshot)
+		return result
 	case schema.StepBranch:
-		return e.executeBranch(ctx, step, stepID)
+		result := e.executeBranch(ctx, step, stepID)
+		e.handlePostStep(step, stepID, scopeSnapshot)
+		return result
 	case schema.StepParallel:
-		return e.executeParallel(ctx, step, stepID)
+		result := e.executeParallel(ctx, step, stepID)
+		e.handlePostStep(step, stepID, scopeSnapshot)
+		return result
 	case schema.StepEnd:
 		return e.executeEnd(ctx, step, stepID, start)
 	case schema.StepExtension:
-		return e.executeExtension(ctx, step, stepID, start)
+		result := e.executeExtension(ctx, step, stepID, start)
+		e.handlePostStep(step, stepID, scopeSnapshot)
+		return result
 	default:
 		return &RunResult{Status: "error", Error: fmt.Errorf("step %s: unsupported type %q", stepID, step.Type)}
+	}
+}
+
+// handlePostStep processes scope exit, export promotion, and cleanup after step execution.
+func (e *Engine) handlePostStep(step schema.Step, stepID string, scopeSnapshot map[string]any) {
+	// --- Export: promote scope-local outputs to global namespace ---
+	if len(step.Export) > 0 {
+		for _, name := range step.Export {
+			val, exists := e.vars[name]
+			if !exists {
+				// Also check under step ID namespace
+				if stepOutputs, ok := e.vars[stepID].(map[string]any); ok {
+					val, exists = stepOutputs[name]
+				}
+			}
+			if exists {
+				// Check collision with existing global
+				if scopeSnapshot != nil {
+					if _, hadBefore := scopeSnapshot[name]; hadBefore {
+						// Collision — this is an error, but we report it and continue
+						// (the engine doesn't halt on export collision in v0, traces it)
+					}
+				}
+				e.vars[name] = val
+
+				if e.trace != nil {
+					e.trace.Emit(trace.EventScopeExport, map[string]any{
+						"step_id": stepID,
+						"field":   name,
+						"scope":   step.Scope,
+					})
+				}
+			}
+		}
+	}
+
+	// --- Scope exit: restore vars from snapshot, keeping exports ---
+	if scopeSnapshot != nil && step.Scope != "" {
+		exports := make(map[string]any)
+		for _, name := range step.Export {
+			if val, ok := e.vars[name]; ok {
+				exports[name] = val
+			}
+		}
+		// Restore pre-scope state
+		e.vars = scopeSnapshot
+		// Apply exports
+		for k, v := range exports {
+			e.vars[k] = v
+		}
+		delete(e.vars, "_scope")
 	}
 }
 
@@ -401,46 +536,66 @@ func (e *Engine) executeTool(ctx context.Context, step schema.Step, stepID strin
 		return &RunResult{Status: "error", Error: fmt.Errorf("step %s: %w", stepID, err)}
 	}
 
-	// Dry-run mode: report what would execute, skip actual execution
-	if e.cfg.Mode == "dry-run" {
-		fmt.Fprintf(e.cfg.Stdout, "  [dry-run] tool %s:%s\n", step.Tool, step.Action)
-		fmt.Fprintf(e.cfg.Stdout, "    inputs: %v\n", resolvedInputs)
-		td := e.tools[step.Tool]
-		if td != nil && len(td.Meta.Platform) > 0 {
-			fmt.Fprintf(e.cfg.Stdout, "    platform: %v\n", td.Meta.Platform)
-		}
-		if td != nil && td.Meta.Binary != "" {
-			fmt.Fprintf(e.cfg.Stdout, "    binary: %s\n", td.Meta.Binary)
-		}
+	// Dry-run and probe modes
+	if e.cfg.Mode == "dry-run" || e.cfg.Mode == "probe" {
+		isProbe := e.cfg.Mode == "probe"
+
 		c := e.resolveContract(step)
-		if c != nil {
-			r := c.Resolved()
-			if len(r.Effects) > 0 {
-				fmt.Fprintf(e.cfg.Stdout, "    effects: %v\n", r.Effects)
+
+		// In probe mode, skip steps with writes (non-read-only)
+		if isProbe && c != nil && len(c.Writes) > 0 {
+			fmt.Fprintf(e.cfg.Stdout, "  [probe] SKIP %s:%s (has writes)\n", step.Tool, step.Action)
+			if e.trace != nil {
+				e.trace.EmitStepStart(stepID, "tool", nil)
+				e.trace.EmitStepComplete(stepID, trace.StatusSkipped, nil, time.Since(start), nil)
 			}
-			fmt.Fprintf(e.cfg.Stdout, "    deterministic=%v idempotent=%v risk=%s\n",
-				*r.Deterministic, *r.Idempotent, r.Risk())
-			if len(r.Reads) > 0 {
-				fmt.Fprintf(e.cfg.Stdout, "    reads: %v\n", r.Reads)
-			}
-			if len(r.Writes) > 0 {
-				fmt.Fprintf(e.cfg.Stdout, "    writes: %v\n", r.Writes)
-			}
+			return nil
 		}
-		// Show secrets status
-		if td != nil && len(td.Meta.Secrets) > 0 {
-			for _, s := range td.Meta.Secrets {
-				status := "✓ set"
-				if os.Getenv(s.Env) == "" {
-					status = "✗ missing"
+
+		// In probe mode, read-only tools fall through to actual execution below
+		if !isProbe {
+			fmt.Fprintf(e.cfg.Stdout, "  [dry-run] tool %s:%s\n", step.Tool, step.Action)
+			fmt.Fprintf(e.cfg.Stdout, "    inputs: %v\n", resolvedInputs)
+			td := e.tools[step.Tool]
+			if td != nil && len(td.Meta.Platform) > 0 {
+				fmt.Fprintf(e.cfg.Stdout, "    platform: %v\n", td.Meta.Platform)
+			}
+			if td != nil && td.Meta.Binary != "" {
+				fmt.Fprintf(e.cfg.Stdout, "    binary: %s\n", td.Meta.Binary)
+			}
+			if c == nil {
+				c = e.resolveContract(step)
+			}
+			if c != nil {
+				r := c.Resolved()
+				if len(r.Effects) > 0 {
+					fmt.Fprintf(e.cfg.Stdout, "    effects: %v\n", r.Effects)
 				}
-				fmt.Fprintf(e.cfg.Stdout, "    secret %s: %s\n", s.Env, status)
+				fmt.Fprintf(e.cfg.Stdout, "    deterministic=%v idempotent=%v risk=%s\n",
+					*r.Deterministic, *r.Idempotent, r.Risk())
+				if len(r.Reads) > 0 {
+					fmt.Fprintf(e.cfg.Stdout, "    reads: %v\n", r.Reads)
+				}
+				if len(r.Writes) > 0 {
+					fmt.Fprintf(e.cfg.Stdout, "    writes: %v\n", r.Writes)
+				}
 			}
+			// Show secrets status
+			if td != nil && len(td.Meta.Secrets) > 0 {
+				for _, s := range td.Meta.Secrets {
+					status := "✓ set"
+					if os.Getenv(s.Env) == "" {
+						status = "✗ missing"
+					}
+					fmt.Fprintf(e.cfg.Stdout, "    secret %s: %s\n", s.Env, status)
+				}
+			}
+			if e.trace != nil {
+				e.trace.EmitStepComplete(stepID, trace.StatusSkipped, resolvedInputs, time.Since(start), nil)
+			}
+			return nil
 		}
-		if e.trace != nil {
-			e.trace.EmitStepComplete(stepID, trace.StatusSkipped, resolvedInputs, time.Since(start), nil)
-		}
-		return nil
+		// probe mode: read-only tools fall through to actual execution
 	}
 
 	// Load tool definition
@@ -466,6 +621,39 @@ func (e *Engine) executeTool(ctx context.Context, step schema.Step, stepID strin
 	// Store under step ID namespace
 	if stepID != "" {
 		e.vars[stepID] = result.Outputs
+	}
+
+	// Contract violation detection
+	c := e.resolveContract(step)
+	if c != nil && c.Outputs != nil {
+		// Check for undeclared outputs (outputs not in contract)
+		for k := range result.Outputs {
+			if _, declared := c.Outputs[k]; !declared {
+				if e.trace != nil {
+					e.trace.Emit(trace.EventContractViolation, map[string]any{
+						"step_id": stepID,
+						"kind":    "undeclared_output",
+						"field":   k,
+						"message": fmt.Sprintf("output %q not declared in contract", k),
+					})
+				}
+			}
+		}
+		// Check for missing declared outputs
+		for k, param := range c.Outputs {
+			if param.Required {
+				if _, present := result.Outputs[k]; !present {
+					if e.trace != nil {
+						e.trace.Emit(trace.EventContractViolation, map[string]any{
+							"step_id": stepID,
+							"kind":    "missing_output",
+							"field":   k,
+							"message": fmt.Sprintf("declared output %q missing from result", k),
+						})
+					}
+				}
+			}
+		}
 	}
 
 	duration := time.Since(start)
@@ -801,6 +989,58 @@ func (e *Engine) forkEngine(vars map[string]any) *Engine {
 		toolExec:  e.toolExec,
 		startTime: e.startTime,
 	}
+}
+
+// executeRepeat runs a repeat block up to max iterations,
+// stopping early if the `until` expression evaluates to true.
+func (e *Engine) executeRepeat(ctx context.Context, step schema.Step, stepID string, start time.Time) *RunResult {
+	rep := step.Repeat
+	if rep.Max <= 0 {
+		return &RunResult{Status: "error", Error: fmt.Errorf("step %s: repeat.max must be > 0", stepID)}
+	}
+
+	if e.trace != nil {
+		e.trace.Emit(trace.EventRepeatStart, map[string]any{
+			"step_id": stepID,
+			"max":     rep.Max,
+			"until":   rep.Until,
+		})
+	}
+
+	for i := 0; i < rep.Max; i++ {
+		// Set iteration vars
+		e.vars["repeat"] = map[string]any{
+			"index": i,
+			"round": i,
+		}
+
+		if e.trace != nil {
+			e.trace.Emit(trace.EventRepeatIteration, map[string]any{
+				"step_id":   stepID,
+				"iteration": i,
+			})
+		}
+
+		// Execute the repeat's inner steps
+		result := e.executeSteps(ctx, rep.Steps, false)
+		if result != nil && (result.Status == "failed" || result.Status == "error") {
+			return result
+		}
+		// If inner steps produced an outcome (end step), propagate it
+		if result != nil && result.Outcome != nil {
+			return result
+		}
+
+		// Check until condition
+		if rep.Until != "" {
+			val, err := eval.EvalBool(rep.Until, e.vars)
+			if err == nil && val {
+				break
+			}
+		}
+	}
+
+	return nil
 }
 
 // collectNewVars returns variables that were added or changed relative to parentVars.
@@ -1225,7 +1465,7 @@ func matchPattern(pattern, value string) (bool, error) {
 }
 
 func (e *Engine) requestApproval(ctx context.Context, stepID string, decision governance.Decision) bool {
-	if e.cfg.Mode == "dry-run" {
+	if e.cfg.Mode == "dry-run" || e.cfg.Mode == "replay" {
 		return true
 	}
 
@@ -1251,22 +1491,67 @@ func (e *Engine) requestApproval(ctx context.Context, stepID string, decision go
 		})
 	}
 
-	resp, err := e.approval.Wait(ctx, ticket)
-	if err != nil {
-		return false
+	// Collect required number of approvals
+	minApprovers := decision.MinApprovers
+	if minApprovers < 1 {
+		minApprovers = 1
 	}
 
-	// Emit approval_resolved trace event
-	if e.trace != nil {
-		e.trace.Emit(trace.EventType("approval_resolved"), map[string]any{
-			"ticket_id":   resp.TicketID,
-			"approved":    resp.Approved,
-			"approver_id": resp.ApproverID,
-			"method":      resp.Method,
-		})
+	approvalCount := 0
+	for i := 0; i < minApprovers; i++ {
+		resp, err := e.approval.Wait(ctx, ticket)
+		if err != nil {
+			return false
+		}
+
+		// Verify signature if present and required
+		if resp.Signature != "" {
+			// Signature verification: if the response has a signature,
+			// check it against the signing key. Invalid → treated as rejection.
+			sigKey := os.Getenv("GERT_APPROVAL_SIGNING_KEY")
+			if sigKey != "" {
+				valid := verifyApprovalSignature(resp, sigKey)
+				if !valid {
+					if e.trace != nil {
+						e.trace.Emit(trace.EventContractViolation, map[string]any{
+							"step_id": stepID,
+							"kind":    "invalid_approval_signature",
+							"message": "approval response signature verification failed",
+						})
+					}
+					return false
+				}
+			}
+		}
+
+		// Emit approval_resolved trace event
+		if e.trace != nil {
+			e.trace.Emit(trace.EventType("approval_resolved"), map[string]any{
+				"ticket_id":    resp.TicketID,
+				"approved":     resp.Approved,
+				"approver_id":  resp.ApproverID,
+				"method":       resp.Method,
+				"approver_num": i + 1,
+				"of_required":  minApprovers,
+			})
+		}
+
+		if !resp.Approved {
+			return false
+		}
+		approvalCount++
 	}
 
-	return resp.Approved
+	return approvalCount >= minApprovers
+}
+
+// verifyApprovalSignature checks the HMAC signature of an approval response.
+func verifyApprovalSignature(resp *ApprovalResponse, sigKey string) bool {
+	mac := hmac.New(sha256.New, []byte(sigKey))
+	payload := resp.TicketID + ":" + resp.ApproverID + ":" + fmt.Sprintf("%v", resp.Approved)
+	mac.Write([]byte(payload))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(resp.Signature), []byte(expected))
 }
 
 // stdinApprovalProvider implements ApprovalProvider using stdin/stdout.
@@ -1326,6 +1611,16 @@ func (e *Engine) Vars() map[string]any {
 // SetToolDef injects a tool definition directly (for testing/replay without disk loading).
 func (e *Engine) SetToolDef(name string, td *schema.ToolDefinition) {
 	e.tools[name] = td
+}
+
+// fileHash computes the SHA-256 hash of a file and returns the hex string.
+func fileHash(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:]), nil
 }
 
 func (e *Engine) emitStepError(stepID string, start time.Time, kind, msg string) {

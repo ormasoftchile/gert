@@ -2,6 +2,7 @@ package validate
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"runtime"
 	"strings"
@@ -102,6 +103,35 @@ func validateDomain(rb *schema.Runbook, baseDir string) []*ValidationError {
 		}
 	})
 
+	// D15b: repeat block validation
+	walkSteps(rb.Steps, "steps", func(s schema.Step, path string) {
+		if s.Repeat != nil {
+			if s.Repeat.Max <= 0 {
+				errs = append(errs, errorf("domain", path+".repeat.max", "repeat.max must be > 0"))
+			}
+			if len(s.Repeat.Steps) == 0 {
+				errs = append(errs, errorf("domain", path+".repeat.steps", "repeat block must have at least one step"))
+			}
+		}
+	})
+
+	// D15c: export references must be in contract.outputs of the step's tool
+	walkSteps(rb.Steps, "steps", func(s schema.Step, path string) {
+		if len(s.Export) > 0 && s.Type == schema.StepTool && s.Tool != "" {
+			toolPath := ResolveToolPath(s.Tool, baseDir, "")
+			if toolPath != "" {
+				td, err := schema.LoadToolFile(toolPath)
+				if err == nil {
+					for _, name := range s.Export {
+						if _, ok := td.Contract.Outputs[name]; !ok {
+							errs = append(errs, errorf("domain", path+".export", "export %q is not declared in tool %q contract.outputs", name, s.Tool))
+						}
+					}
+				}
+			}
+		}
+	})
+
 	// D16: tool step — validate tool is in the allow-list
 	if len(rb.Tools) > 0 {
 		toolSet := make(map[string]struct{}, len(rb.Tools))
@@ -159,7 +189,14 @@ func validateDomain(rb *schema.Runbook, baseDir string) []*ValidationError {
 				"tool %q requires platform %v but current OS is %q", s.Tool, td.Meta.Platform, runtime.GOOS))
 		}
 	})
-
+	// D22: secrets — warn if declared secret env vars are not set
+	for i, secret := range rb.Meta.Secrets {
+		if secret.Env == "" {
+			errs = append(errs, errorf("domain", fmt.Sprintf("meta.secrets[%d].env", i), "secret env var name is required"))
+		} else if os.Getenv(secret.Env) == "" {
+			errs = append(errs, warningf("domain", fmt.Sprintf("meta.secrets[%d]", i), "secret env var %q is not set", secret.Env))
+		}
+	}
 	return errs
 }
 
@@ -173,15 +210,18 @@ func validateToolEffects(td *schema.ToolDefinition) []*ValidationError {
 		errs = append(errs, errorf("domain", "contract", "cannot declare both 'side_effects' and 'effects' — use 'effects' only"))
 	}
 
-	// Warning if side_effects used without effects (deprecated)
+	// Warning if side_effects used without effects (deprecated) — auto-migrate
 	if c.SideEffects != nil && len(c.Effects) == 0 {
-		errs = append(errs, warningf("domain", "contract.side_effects", "'side_effects' is deprecated — use 'effects: [...]' instead"))
+		errs = append(errs, warningf("domain", "contract.side_effects", "'side_effects' is deprecated — use 'effects: [...]' instead; auto-migrated to effects: [unknown]"))
+		c.Effects = []string{"unknown"}
 	}
 
 	// Validate secrets
 	for i, secret := range td.Meta.Secrets {
 		if secret.Env == "" {
 			errs = append(errs, errorf("domain", fmt.Sprintf("meta.secrets[%d].env", i), "secret env var name is required"))
+		} else if os.Getenv(secret.Env) == "" {
+			errs = append(errs, warningf("domain", fmt.Sprintf("meta.secrets[%d]", i), "secret env var %q is not set", secret.Env))
 		}
 	}
 
@@ -426,6 +466,11 @@ func walkVariableResolution(steps []schema.Step, basePath string, available map[
 	for i, s := range steps {
 		path := fmt.Sprintf("%s[%d]", basePath, i)
 
+		// ForEach scoping — the `as` variable is available within this step's own templates
+		if s.ForEach != nil && s.ForEach.As != "" {
+			available[s.ForEach.As] = true
+		}
+
 		// Check all template references in this step
 		refs := collectTemplateRefs(s)
 		for _, ref := range refs {
@@ -461,11 +506,6 @@ func walkVariableResolution(steps []schema.Step, basePath string, available map[
 					}
 				}
 			}
-		}
-
-		// ForEach scoping — the `as` variable is available in template refs
-		if s.ForEach != nil && s.ForEach.As != "" {
-			available[s.ForEach.As] = true
 		}
 
 		// Recurse into branches
@@ -928,6 +968,11 @@ func walkSteps(steps []schema.Step, basePath string, fn func(schema.Step, string
 		for j, br := range s.Branches {
 			brPath := fmt.Sprintf("%s.branches[%d].steps", path, j)
 			walkSteps(br.Steps, brPath, fn)
+		}
+		// Recurse into repeat blocks
+		if s.Repeat != nil {
+			repPath := fmt.Sprintf("%s.repeat.steps", path)
+			walkSteps(s.Repeat.Steps, repPath, fn)
 		}
 	}
 }

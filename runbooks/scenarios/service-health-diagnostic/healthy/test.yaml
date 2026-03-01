@@ -1,0 +1,15 @@
+# Test: healthy scenario — service is up
+description: Service responds 200 — should resolve as no_action
+expected_status: completed
+expected_outcome: no_action
+expected_code: service_healthy
+must_reach:
+  - ping_host
+  - http_check
+  - evaluate
+  - healthy_end
+must_not_reach:
+  - degraded_end
+  - unknown_end
+expected_outputs:
+  status_code: "200"

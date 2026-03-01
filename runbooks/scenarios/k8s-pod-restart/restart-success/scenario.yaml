@@ -1,0 +1,22 @@
+# Scenario: Pod is running — restart succeeds
+inputs:
+  pod: web-api-7f8b9
+  namespace: production
+
+tool_responses:
+  "kubectl:get":
+    - exit_code: 0
+      stdout: '{"status":{"phase":"Running"}}'
+      outputs:
+        result: '{"status":{"phase":"Running"}}'
+        pod_status: "Running"
+    - exit_code: 0
+      stdout: '{"status":{"phase":"Running"}}'
+      outputs:
+        result: '{"status":{"phase":"Running"}}'
+        pod_status: "Running"
+  "kubectl:delete":
+    - exit_code: 0
+      stdout: 'pod "web-api-7f8b9" deleted'
+      outputs:
+        result: 'pod "web-api-7f8b9" deleted'

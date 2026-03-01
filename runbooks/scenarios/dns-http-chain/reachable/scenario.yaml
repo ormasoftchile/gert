@@ -1,0 +1,17 @@
+# Scenario: DNS resolves and HTTP is healthy
+inputs:
+  hostname: api.example.com
+  dns_server: "8.8.8.8"
+
+tool_responses:
+  "nslookup:lookup":
+    - exit_code: 0
+      stdout: "Server: 8.8.8.8\nAddress: 93.184.216.34"
+      outputs:
+        resolved_ip: "93.184.216.34"
+  "curl:get":
+    - exit_code: 0
+      stdout: "200"
+      outputs:
+        status_code: "200"
+        response: "OK"

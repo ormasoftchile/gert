@@ -1,0 +1,12 @@
+# Scenario: All endpoints healthy
+inputs:
+  endpoints: "api.example.com,web.example.com"
+  all_healthy: "true"
+
+tool_responses:
+  "curl:get":
+    - exit_code: 0
+      stdout: "200"
+      outputs:
+        status_code: "200"
+        response: "OK"

@@ -1,0 +1,15 @@
+# Test: degraded scenario — service returns 503
+description: Service responds 503 — should escalate as degraded
+expected_status: completed
+expected_outcome: escalated
+expected_code: service_degraded
+must_reach:
+  - ping_host
+  - http_check
+  - evaluate
+  - degraded_end
+must_not_reach:
+  - healthy_end
+  - unknown_end
+expected_outputs:
+  status_code: "503"

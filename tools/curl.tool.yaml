@@ -2,66 +2,56 @@ apiVersion: tool/v0
 
 meta:
   name: curl
-  version: "1.0"
   description: Transfer data from or to a server using HTTP, HTTPS, FTP, and more
   binary: curl
+  transport: stdio
 
-transport:
-  mode: stdio
+contract:
+  effects: [network]
+  writes: []
+  idempotent: true
+  deterministic: false
+  inputs:
+    url:
+      type: string
+      required: true
+  outputs:
+    status_code:
+      type: string
+    response:
+      type: string
+    status:
+      type: string
 
 actions:
   get:
     description: Perform an HTTP GET request
     argv: ["-s", "-L", "-w", "\n%{http_code}", "{{ .url }}"]
-    args:
-      url:
-        type: string
-        required: true
-        description: URL to request
-    capture:
-      stdout:
-        format: text
+    extract:
+      status_code:
+        from: stdout
+      response:
+        from: stdout
 
   post:
     description: Perform an HTTP POST request with a JSON body
     argv: ["-s", "-L", "-X", "POST", "-H", "Content-Type: application/json", "-d", "{{ .body }}", "-w", "\n%{http_code}", "{{ .url }}"]
-    args:
-      url:
-        type: string
-        required: true
-        description: URL to post to
-      body:
-        type: string
-        required: true
-        description: JSON body to send
-    capture:
-      stdout:
-        format: text
+    extract:
+      status_code:
+        from: stdout
+      response:
+        from: stdout
 
   head:
     description: Fetch only the HTTP response headers
     argv: ["-s", "-I", "{{ .url }}"]
-    args:
-      url:
-        type: string
-        required: true
-        description: URL to inspect
-    capture:
-      stdout:
-        format: text
+    extract:
+      response:
+        from: stdout
 
   download:
     description: Download a file to a local path
     argv: ["-s", "-L", "-o", "{{ .output }}", "{{ .url }}"]
-    args:
-      url:
-        type: string
-        required: true
-        description: URL to download
-      output:
-        type: string
-        required: true
-        description: Local file path to write the downloaded content
-    capture:
-      stdout:
-        format: text
+    extract:
+      response:
+        from: stdout

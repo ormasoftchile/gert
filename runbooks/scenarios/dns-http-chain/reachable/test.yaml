@@ -1,0 +1,14 @@
+# Test: DNS resolves and HTTP healthy
+description: DNS resolves correctly and HTTP returns 200
+expected_status: completed
+expected_outcome: no_action
+expected_code: dns_http_ok
+must_reach:
+  - dns_resolve
+  - http_check
+  - reachable_end
+must_not_reach:
+  - unreachable_end
+expected_outputs:
+  resolved_ip: "93.184.216.34"
+  status_code: "200"

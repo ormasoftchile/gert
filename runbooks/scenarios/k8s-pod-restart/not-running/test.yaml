@@ -1,0 +1,12 @@
+# Test: pod not running — should escalate
+description: Pod not in Running state — should escalate
+expected_status: completed
+expected_outcome: escalated
+expected_code: pod_not_running
+must_reach:
+  - get_pod
+  - not_running_end
+must_not_reach:
+  - delete_pod
+  - verify_pod
+  - restarted_end

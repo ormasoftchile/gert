@@ -160,6 +160,7 @@ var (
 	execMode  string
 	execVars  []string
 	execTrace string
+	execActor string
 )
 
 var execCmd = &cobra.Command{
@@ -197,6 +198,13 @@ func runExec(cmd *cobra.Command, args []string) error {
 		vars[parts[0]] = parts[1]
 	}
 
+	// Resolve inputs through kernel API
+	ctx := context.Background()
+	resolved, err := engine.ResolveInputs(ctx, rb, vars, nil)
+	if err != nil {
+		return fmt.Errorf("input resolution: %w", err)
+	}
+
 	// Set up trace writer
 	var tw *trace.Writer
 	if execTrace != "" {
@@ -209,16 +217,21 @@ func runExec(cmd *cobra.Command, args []string) error {
 
 	// Build run config
 	baseDir := filepath.Dir(filePath)
+	hostname, _ := os.Hostname()
 	cfg := engine.RunConfig{
-		RunID:   "run-1",
-		Mode:    execMode,
-		Vars:    vars,
-		BaseDir: baseDir,
-		Trace:   tw,
+		RunID:       "run-1",
+		Mode:        execMode,
+		Vars:        resolved.Vars,
+		BaseDir:     baseDir,
+		Trace:       tw,
+		Actor:       execActor,
+		Host:        hostname,
+		Version:     version,
+		RunbookPath: filePath,
 	}
 
 	eng := engine.New(rb, cfg)
-	result := eng.Run(context.Background())
+	result := eng.Run(ctx)
 
 	if result.Outcome != nil {
 		fmt.Printf("\n✓ Outcome: %s (%s)\n", result.Outcome.Category, result.Outcome.Code)
@@ -241,6 +254,7 @@ func init() {
 	execCmd.Flags().StringVar(&execMode, "mode", "real", "Execution mode: real or dry-run")
 	execCmd.Flags().StringArrayVar(&execVars, "var", nil, "Set a variable (key=value), repeatable")
 	execCmd.Flags().StringVar(&execTrace, "trace", "", "Write trace to JSONL file")
+	execCmd.Flags().StringVar(&execActor, "as", "", "Actor identity for trace and approval requests")
 
 	testCmd.Flags().StringVar(&testScenario, "scenario", "", "Run only the named scenario (default: all)")
 	testCmd.Flags().BoolVar(&testJSON, "json", false, "Output results as JSON")
@@ -398,4 +412,3 @@ func printTestOutput(output *ktesting.TestOutput) {
 	fmt.Printf("\n  %d passed, %d failed, %d skipped, %d errors (total: %d)\n",
 		output.Summary.Passed, output.Summary.Failed, output.Summary.Skipped, output.Summary.Errors, output.Summary.Total)
 }
-

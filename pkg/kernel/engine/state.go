@@ -9,11 +9,11 @@ import (
 
 // RunState captures the engine state at a point in time for resume.
 type RunState struct {
-	RunID         string         `json:"run_id"`
-	RunbookPath   string         `json:"runbook_path"`
-	StepIndex     int            `json:"step_index"`
-	Vars          map[string]any `json:"vars"`
-	TracePath     string         `json:"trace_path"`
+	RunID         string          `json:"run_id"`
+	RunbookPath   string          `json:"runbook_path"`
+	StepIndex     int             `json:"step_index"`
+	Vars          map[string]any  `json:"vars"`
+	TracePath     string          `json:"trace_path"`
 	PendingTicket *ApprovalTicket `json:"pending_ticket,omitempty"`
 }
 

@@ -2,49 +2,34 @@ apiVersion: tool/v0
 
 meta:
   name: ping
-  version: "1.0"
   description: Send ICMP ECHO_REQUEST packets to a host to test reachability
   binary: ping
+  transport: stdio
 
-transport:
-  mode: stdio
+contract:
+  effects: [network]
+  writes: []
+  idempotent: true
+  deterministic: false
+  inputs:
+    host:
+      type: string
+      required: true
+  outputs:
+    result:
+      type: string
 
 actions:
   check:
     description: Ping a host a fixed number of times and report results
     argv: ["-c", "{{ .count }}", "{{ .host }}"]
-    args:
-      host:
-        type: string
-        required: true
-        description: Hostname or IP address to ping
-      count:
-        type: int
-        required: false
-        default: "4"
-        description: Number of ICMP packets to send
-    capture:
-      stdout:
-        format: text
+    extract:
+      result:
+        from: stdout
 
   check-timeout:
     description: Ping a host with a deadline (seconds) and report results
     argv: ["-c", "{{ .count }}", "-W", "{{ .timeout }}", "{{ .host }}"]
-    args:
-      host:
-        type: string
-        required: true
-        description: Hostname or IP address to ping
-      count:
-        type: int
-        required: false
-        default: "4"
-        description: Number of ICMP packets to send
-      timeout:
-        type: int
-        required: false
-        default: "5"
-        description: Time in seconds to wait for each reply
-    capture:
-      stdout:
-        format: text
+    extract:
+      result:
+        from: stdout
