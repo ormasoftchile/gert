@@ -85,12 +85,8 @@ func main() {
 
 	p := tea.NewProgram(model, tea.WithAltScreen())
 
-	// Start engine asynchronously
-	go func() {
-		cmd := model.StartEngine(runCfg)
-		msg := cmd()
-		p.Send(msg)
-	}()
+	// Start engine — streams trace events back to TUI via p.Send()
+	tui.StartEngine(model, runCfg, p)
 
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
