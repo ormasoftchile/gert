@@ -1,0 +1,75 @@
+# DNS-HTTP Chain — input resolution with from: bindings
+apiVersion: kernel/v0
+
+meta:
+  name: dns-http-chain
+  description: DNS resolution followed by HTTP health check — demonstrates input threading
+
+  inputs:
+    hostname:
+      type: string
+      required: true
+      description: Target hostname to resolve and check
+    dns_server:
+      type: string
+      required: false
+      default: "8.8.8.8"
+      description: DNS server to use for resolution
+
+  governance:
+    rules:
+      - effects: [network]
+        action: allow
+      - default: allow
+
+tools:
+  - nslookup
+  - curl
+
+steps:
+  # Step 1: DNS resolution
+  - id: dns_resolve
+    type: tool
+    tool: nslookup
+    action: lookup
+    inputs:
+      host: "{{ .hostname }}"
+      server: "{{ .dns_server }}"
+
+  # Step 2: HTTP check using resolved IP
+  - id: http_check
+    type: tool
+    tool: curl
+    action: get
+    inputs:
+      url: "https://{{ .hostname }}"
+
+  # Step 3: Evaluate
+  - id: evaluate
+    type: branch
+    branches:
+      - condition: '{{ eq .status_code "200" }}'
+        label: reachable
+        steps:
+          - id: reachable_end
+            type: end
+            outcome:
+              category: no_action
+              code: dns_http_ok
+              meta:
+                hostname: "{{ .hostname }}"
+                resolved_ip: "{{ .resolved_ip }}"
+                status_code: "{{ .status_code }}"
+
+      - condition: default
+        label: unreachable
+        steps:
+          - id: unreachable_end
+            type: end
+            outcome:
+              category: escalated
+              code: dns_http_fail
+              meta:
+                hostname: "{{ .hostname }}"
+                resolved_ip: "{{ .resolved_ip }}"
+                status_code: "{{ .status_code }}"

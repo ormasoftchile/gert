@@ -1,0 +1,10 @@
+# Test: all endpoints healthy
+description: All endpoints return 200 — no action needed
+expected_status: completed
+expected_outcome: no_action
+expected_code: all_endpoints_healthy
+must_reach:
+  - check_primary
+  - all_healthy_end
+must_not_reach:
+  - some_unhealthy_end

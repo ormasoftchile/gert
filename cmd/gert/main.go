@@ -1,7 +1,13 @@
+// Package main provides the kernel/v0 CLI entrypoint.
+// This is a minimal wrapper — the kernel CLI has four verbs:
+//
+//	gert validate <file>
+//	gert exec <file>      (Phase 3+)
+//	gert test <file...>   (Phase 5)
+//	gert schema            (exports JSON Schema)
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,77 +16,35 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ormasoftchile/gert/pkg/debugger"
-	"github.com/ormasoftchile/gert/pkg/diagram"
-	"github.com/ormasoftchile/gert/pkg/inputs"
-	"github.com/ormasoftchile/gert/pkg/providers"
-	"github.com/ormasoftchile/gert/pkg/replay"
-	"github.com/ormasoftchile/gert/pkg/runtime"
-	"github.com/ormasoftchile/gert/pkg/schema"
-	"github.com/ormasoftchile/gert/pkg/serve"
-	"github.com/ormasoftchile/gert/pkg/tools"
-	"github.com/ormasoftchile/gert/pkg/tui"
-	runtest "github.com/ormasoftchile/gert/pkg/testing"
+	"github.com/ormasoftchile/gert/pkg/kernel/engine"
+	kschema "github.com/ormasoftchile/gert/pkg/kernel/schema"
+	ktesting "github.com/ormasoftchile/gert/pkg/kernel/testing"
+	"github.com/ormasoftchile/gert/pkg/kernel/trace"
+	kvalidate "github.com/ormasoftchile/gert/pkg/kernel/validate"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
-// Version is set at build time via ldflags.
 var (
 	version = "dev"
 	commit  = "unknown"
 )
 
 func main() {
-	loadDotEnv() // load .env file if present (gitignored)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
-// loadDotEnv reads a .env file from the working directory and sets
-// any variables that aren't already set in the environment.
-// Lines are KEY=VALUE (or KEY="VALUE"). Comments (#) and blanks are skipped.
-// The .env file is gitignored so secrets never end up in source control.
-func loadDotEnv() {
-	f, err := os.Open(".env")
-	if err != nil {
-		return // no .env file — that's fine
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.TrimSpace(parts[1])
-		// Remove surrounding quotes
-		val = strings.Trim(val, `"'`)
-		// Don't overwrite existing env vars
-		if os.Getenv(key) == "" {
-			os.Setenv(key, val)
-		}
-	}
-}
-
 var rootCmd = &cobra.Command{
 	Use:   "gert",
-	Short: "Governed Executable Runbook Engine",
-	Long:  "gert — a platform for governed, executable, debuggable runbooks with traceability and evidence capture.",
+	Short: "Governed Executable Runbook Engine — kernel/v0",
 }
 
 // --- validate ---
 
 var validateCmd = &cobra.Command{
 	Use:   "validate [runbook.yaml]",
-	Short: "Validate a runbook YAML file against the schema",
+	Short: "Validate a kernel/v0 runbook YAML (3-phase pipeline)",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runValidate,
 }
@@ -90,14 +54,18 @@ func runValidate(cmd *cobra.Command, args []string) error {
 
 	ext := strings.ToLower(filepath.Ext(filePath))
 	if ext == ".md" || ext == ".markdown" {
-		return fmt.Errorf("%s is a Markdown file, not a runbook YAML — only .yaml files are supported", filePath)
+		return fmt.Errorf("%s is a Markdown file — only .yaml files are supported", filePath)
 	}
 
-	rb, errs := schema.ValidateFile(filePath)
+	// Detect if this is a tool definition by peeking at the file
+	if isToolFile(filePath) {
+		return runValidateTool(filePath)
+	}
+
+	rb, errs := kvalidate.ValidateFile(filePath)
 	if len(errs) > 0 {
-		// Separate warnings from errors
-		var errors []*schema.ValidationError
-		var warnings []*schema.ValidationError
+		var errors []*kvalidate.ValidationError
+		var warnings []*kvalidate.ValidationError
 		for _, e := range errs {
 			if e.Severity == "warning" {
 				warnings = append(warnings, e)
@@ -126,21 +94,78 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func runValidateTool(filePath string) error {
+	td, errs := kvalidate.ValidateToolFile(filePath)
+	if len(errs) > 0 {
+		var errors []*kvalidate.ValidationError
+		for _, e := range errs {
+			if e.Severity == "error" {
+				errors = append(errors, e)
+			}
+		}
+		if len(errors) > 0 {
+			fmt.Fprintf(os.Stderr, "Validation failed: %d error(s)\n\n", len(errors))
+			for i, e := range errors {
+				fmt.Fprintf(os.Stderr, "  %d. [%s] %s\n", i+1, e.Phase, e.Message)
+				if e.Path != "" {
+					fmt.Fprintf(os.Stderr, "     at: %s\n", e.Path)
+				}
+			}
+			return fmt.Errorf("validation failed with %d error(s)", len(errors))
+		}
+	}
+	name := ""
+	if td != nil {
+		name = td.Meta.Name
+	}
+	fmt.Printf("✓ tool %s is valid (%d actions)\n", name, len(td.Actions))
+
+	// Print warnings after success line
+	for _, e := range errs {
+		if e.Severity == "warning" {
+			fmt.Fprintf(os.Stderr, "  ⚠ [%s] %s\n", e.Phase, e.Message)
+			if e.Path != "" {
+				fmt.Fprintf(os.Stderr, "    at: %s\n", e.Path)
+			}
+		}
+	}
+	return nil
+}
+
+// isToolFile peeks at the file to check if apiVersion starts with "tool/".
+func isToolFile(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	buf := make([]byte, 256)
+	n, _ := f.Read(buf)
+	return strings.Contains(string(buf[:n]), "apiVersion: tool/")
+}
+
+// --- version ---
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print version info",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("gert kernel/v0 %s (%s)\n", version, commit)
+	},
+}
+
 // --- exec ---
 
 var (
-	execMode       string
-	execScenario   string
-	execAs         string
-	execResume     string
-	execVars       []string
-	execRebaseTime string
-	execRecord     string
+	execMode  string
+	execVars  []string
+	execTrace string
+	execActor string
 )
 
 var execCmd = &cobra.Command{
 	Use:   "exec [runbook.yaml]",
-	Short: "Execute a runbook",
+	Short: "Execute a kernel/v0 runbook",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runExec,
 }
@@ -148,602 +173,137 @@ var execCmd = &cobra.Command{
 func runExec(cmd *cobra.Command, args []string) error {
 	filePath := args[0]
 
-	// Discover project context (gert.yaml) for package resolution
-	proj, _ := schema.DiscoverProject(filePath)
-	if proj == nil {
-		proj = schema.FallbackProject(filepath.Dir(filePath))
-	}
-
 	// Validate first
-	rb, errs := schema.ValidateFile(filePath)
-	if hasValidationErrors(errs) {
-		fmt.Fprintf(os.Stderr, "Validation failed: %d error(s)\n", countValidationErrors(errs))
+	rb, errs := kvalidate.ValidateFile(filePath)
+	if errs != nil {
 		for _, e := range errs {
-			if e.Severity != "warning" {
+			if e.Severity == "error" {
 				fmt.Fprintf(os.Stderr, "  [%s] %s\n", e.Phase, e.Message)
 			}
 		}
-		return fmt.Errorf("runbook validation failed")
-	}
-	printValidationWarnings(errs)
-
-	// Ensure Vars map exists
-	if rb.Meta.Vars == nil {
-		rb.Meta.Vars = make(map[string]string)
+		for _, e := range errs {
+			if e.Severity == "error" {
+				return fmt.Errorf("validation failed")
+			}
+		}
 	}
 
-	// Parse --var flags into map
-	cliVars := make(map[string]string)
+	// Parse --var flags
+	vars := make(map[string]string)
 	for _, v := range execVars {
 		parts := strings.SplitN(v, "=", 2)
 		if len(parts) != 2 {
 			return fmt.Errorf("invalid --var %q: expected key=value", v)
 		}
-		cliVars[parts[0]] = parts[1]
+		vars[parts[0]] = parts[1]
 	}
 
-	// Resolve inputs: CLI flags → defaults → prompt
-	if rb.Meta.Inputs != nil {
-		for name, input := range rb.Meta.Inputs {
-			if val, ok := cliVars[name]; ok {
-				rb.Meta.Vars[name] = val // CLI override
-			} else if input.Default != "" {
-				rb.Meta.Vars[name] = input.Default
-			} else {
-				// Prompt for unresolved inputs
-				desc := name
-				if input.Description != "" {
-					desc = input.Description
-				}
-				fmt.Printf("  [input] %s (%s)\n", name, input.From)
-				fmt.Printf("          %s\n", desc)
-				fmt.Printf("          value: ")
-				scanner := bufio.NewScanner(os.Stdin)
-				if scanner.Scan() {
-					rb.Meta.Vars[name] = strings.TrimSpace(scanner.Text())
-				} else {
-					return fmt.Errorf("failed to read input %q", name)
-				}
-			}
-		}
-	}
-
-	// Also apply any --var that aren't inputs (direct overrides)
-	for k, v := range cliVars {
-		if rb.Meta.Inputs == nil || rb.Meta.Inputs[k] == nil {
-			rb.Meta.Vars[k] = v
-		}
-	}
-
-	// Set up executor based on mode
-	var executor providers.CommandExecutor
-	var collector providers.EvidenceCollector
-	var stepScenario *replay.StepScenario
-
-	switch execMode {
-	case "real":
-		executor = &providers.RealExecutor{}
-		collector = providers.NewInteractiveCollector()
-	case "dry-run":
-		executor = &DryRunExecutor{}
-		collector = &providers.DryRunCollector{}
-	case "replay":
-		if execScenario == "" {
-			return fmt.Errorf("--scenario is required for replay mode")
-		}
-		// Check if scenario is a directory or a file
-		info, err := os.Stat(execScenario)
-		if err != nil {
-			return fmt.Errorf("stat scenario: %w", err)
-		}
-		if info.IsDir() {
-			// Scenario directory — load with optional time rebasing
-			var refTime time.Time
-			if execRebaseTime != "" {
-				// Only rebase when explicitly requested
-				if execRebaseTime == "now" {
-					// Use start_time from vars as original reference
-					if st, ok := rb.Meta.Vars["start_time"]; ok && st != "" {
-						refTime, _ = time.Parse(time.RFC3339, st)
-					}
-				} else {
-					// Use provided time as original reference, rebase to now
-					refTime, _ = time.Parse(time.RFC3339, execRebaseTime)
-				}
-			}
-			// refTime is zero if no rebasing requested → LoadStepScenario skips rebasing
-			var err error
-			stepScenario, err = replay.LoadStepScenario(execScenario, refTime)
-			if err != nil {
-				return fmt.Errorf("load scenario: %w", err)
-			}
-			fmt.Printf("  [replay] Loaded scenario from %s (%d step responses)\n", execScenario, len(stepScenario.StepResponses))
-			if stepScenario.Rebaser != nil {
-				fmt.Printf("  [replay] Time rebasing: %s → %s\n", stepScenario.Rebaser.OriginalRef.Format(time.RFC3339), stepScenario.Rebaser.ReplayRef.Format(time.RFC3339))
-			}
-			executor = replay.NewReplayExecutor(stepScenario.Scenario)
-			collector = &providers.DryRunCollector{}
-		} else {
-			// CLI scenario file
-			scenario, err := replay.LoadScenario(execScenario)
-			if err != nil {
-				return fmt.Errorf("load scenario: %w", err)
-			}
-			executor = replay.NewReplayExecutor(scenario)
-			collector = providers.NewScenarioCollector(scenario.Evidence)
-		}
-	default:
-		return fmt.Errorf("unknown mode: %q", execMode)
-	}
-
+	// Resolve inputs through kernel API
 	ctx := context.Background()
-
-	// Resume or fresh run
-	var engine *runtime.Engine
-	if execResume != "" {
-		var err error
-		engine, err = runtime.ResumeEngine(rb, executor, collector, execResume)
-		if err != nil {
-			return fmt.Errorf("resume: %w", err)
-		}
-	} else {
-		var err error
-		engine, err = runtime.NewEngine(rb, executor, collector, execMode, execAs)
-		if err != nil {
-			return fmt.Errorf("create engine: %w", err)
-		}
-	}
-
-	// Inject step scenario for replay mode
-	if stepScenario != nil {
-		engine.StepScenario = stepScenario
-	}
-
-	// Set metadata for run manifest
-	engine.RunbookPath = filePath
-	engine.Project = proj
-
-	// Load tool definitions if the runbook declares tools:
-	if len(rb.Tools) > 0 {
-		tm := tools.NewManager(executor, engine.Redact)
-		baseDir := filepath.Dir(filePath)
-		for _, name := range rb.Tools {
-			resolved := schema.ResolveToolPathCompat(proj, rb, name, baseDir)
-			if err := tm.Load(name, resolved, ""); err != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to load tool %q: %v\n", name, err)
-			}
-		}
-		engine.ToolManager = tm
-	}
-
-	fmt.Printf("Run ID: %s\n", engine.GetRunID())
-	fmt.Printf("Mode: %s\n", execMode)
-	if execAs != "" {
-		fmt.Printf("Actor: %s\n", execAs)
-	}
-
-	runErr := engine.Run(ctx)
-
-	// Write run manifest (always, even on failure)
-	if err := engine.WriteManifest(); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to write run manifest: %v\n", err)
-	} else {
-		fmt.Printf("  Manifest: %s/run.yaml\n", engine.GetBaseDir())
-	}
-
-	// Export as replayable scenario if --record is set
-	if execRecord != "" && runErr == nil {
-		if err := exportScenario(engine, filePath, execRecord); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to record scenario: %v\n", err)
-		}
-	}
-
-	if runErr != nil {
-		os.Exit(1)
-	}
-	return nil
-}
-
-// exportScenario copies the run artifacts into a replayable scenario folder.
-func exportScenario(engine *runtime.Engine, runbookPath, targetDir string) error {
-	manifest := engine.BuildManifest()
-
-	// Create target directory structure
-	stepsDir := filepath.Join(targetDir, "steps")
-	if err := os.MkdirAll(stepsDir, 0755); err != nil {
-		return fmt.Errorf("create scenario dir: %w", err)
-	}
-
-	// Copy step response files from run artifacts
-	srcSteps := filepath.Join(engine.GetBaseDir(), "steps")
-	if entries, err := os.ReadDir(srcSteps); err == nil {
-		for _, entry := range entries {
-			if entry.IsDir() {
-				continue
-			}
-			data, err := os.ReadFile(filepath.Join(srcSteps, entry.Name()))
-			if err != nil {
-				continue
-			}
-			os.WriteFile(filepath.Join(stepsDir, entry.Name()), data, 0644)
-		}
-	}
-
-	// Copy run manifest
-	runYAML, _ := yaml.Marshal(manifest)
-	os.WriteFile(filepath.Join(targetDir, "run.yaml"), runYAML, 0644)
-
-	// Write inputs.yaml from resolved vars
-	inputsYAML, _ := yaml.Marshal(manifest.InputsResolved)
-	os.WriteFile(filepath.Join(targetDir, "inputs.yaml"), inputsYAML, 0644)
-
-	// Generate scenario.yaml
-	scenarioManifest := map[string]interface{}{
-		"title":       manifest.Runbook,
-		"captured_at": time.Now().UTC().Format(time.RFC3339),
-		"run_id":      manifest.RunID,
-		"mode":        manifest.Mode,
-		"outcome":     manifest.Outcome,
-	}
-
-	// List step files
-	stepFiles := []string{}
-	if entries, err := os.ReadDir(stepsDir); err == nil {
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				stepFiles = append(stepFiles, entry.Name())
-			}
-		}
-	}
-	scenarioManifest["step_files"] = stepFiles
-
-	scenarioYAML, _ := yaml.Marshal(scenarioManifest)
-	os.WriteFile(filepath.Join(targetDir, "scenario.yaml"), scenarioYAML, 0644)
-
-	fmt.Printf("  Scenario recorded: %s (%d step files)\n", targetDir, len(stepFiles))
-	return nil
-}
-
-// DryRunExecutor reports commands without executing them.
-type DryRunExecutor struct{}
-
-func (d *DryRunExecutor) Execute(ctx context.Context, command string, args []string, env []string) (*providers.CommandResult, error) {
-	fmt.Printf("  [dry-run] would execute: %s %v\n", command, args)
-	return &providers.CommandResult{
-		Stdout:   []byte("<dry-run>"),
-		Stderr:   nil,
-		ExitCode: 0,
-	}, nil
-}
-
-// --- debug ---
-
-var (
-	debugMode       string
-	debugScenario   string
-	debugAs         string
-	debugRebaseTime string
-	debugVars       []string
-)
-
-var debugCmd = &cobra.Command{
-	Use:   "debug [runbook.yaml]",
-	Short: "Launch interactive debugger for a runbook",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runDebug,
-}
-
-func runDebug(cmd *cobra.Command, args []string) error {
-	filePath := args[0]
-
-	// Validate first
-	rb, errs := schema.ValidateFile(filePath)
-	if hasValidationErrors(errs) {
-		fmt.Fprintf(os.Stderr, "Validation failed: %d error(s)\n", countValidationErrors(errs))
-		for _, e := range errs {
-			if e.Severity != "warning" {
-				fmt.Fprintf(os.Stderr, "  [%s] %s\n", e.Phase, e.Message)
-			}
-		}
-		return fmt.Errorf("runbook validation failed")
-	}
-	printValidationWarnings(errs)
-
-	// Ensure Vars map exists and apply --var flags
-	if rb.Meta.Vars == nil {
-		rb.Meta.Vars = make(map[string]string)
-	}
-	for _, v := range debugVars {
-		parts := strings.SplitN(v, "=", 2)
-		if len(parts) == 2 {
-			rb.Meta.Vars[parts[0]] = parts[1]
-		}
-	}
-	// Resolve inputs into vars
-	if rb.Meta.Inputs != nil {
-		for name, input := range rb.Meta.Inputs {
-			if _, ok := rb.Meta.Vars[name]; !ok {
-				if input.Default != "" {
-					rb.Meta.Vars[name] = input.Default
-				}
-			}
-		}
-	}
-
-	// Set up executor/collector based on mode
-	var executor providers.CommandExecutor
-	var collector providers.EvidenceCollector
-	var stepScenario *replay.StepScenario
-
-	switch debugMode {
-	case "real":
-		executor = &providers.RealExecutor{}
-		collector = providers.NewInteractiveCollector()
-	case "dry-run":
-		executor = &DryRunExecutor{}
-		collector = &providers.DryRunCollector{}
-	case "replay":
-		if debugScenario == "" {
-			return fmt.Errorf("--scenario is required for replay mode")
-		}
-		info, err := os.Stat(debugScenario)
-		if err != nil {
-			return fmt.Errorf("stat scenario: %w", err)
-		}
-		if info.IsDir() {
-			var refTime time.Time
-			if debugRebaseTime == "now" {
-				if st, ok := rb.Meta.Vars["start_time"]; ok && st != "" {
-					refTime, _ = time.Parse(time.RFC3339, st)
-				}
-			} else if debugRebaseTime != "" {
-				refTime, _ = time.Parse(time.RFC3339, debugRebaseTime)
-			}
-			var err error
-			stepScenario, err = replay.LoadStepScenario(debugScenario, refTime)
-			if err != nil {
-				return fmt.Errorf("load scenario: %w", err)
-			}
-			fmt.Printf("  [replay] Loaded scenario (%d step responses)\n", len(stepScenario.StepResponses))
-			executor = replay.NewReplayExecutor(stepScenario.Scenario)
-			collector = &providers.DryRunCollector{}
-		} else {
-			scenario, err := replay.LoadScenario(debugScenario)
-			if err != nil {
-				return fmt.Errorf("load scenario: %w", err)
-			}
-			executor = replay.NewReplayExecutor(scenario)
-			collector = providers.NewScenarioCollector(scenario.Evidence)
-		}
-	default:
-		return fmt.Errorf("unknown mode: %q", debugMode)
-	}
-
-	d, err := debugger.New(rb, executor, collector, debugMode, debugAs)
+	resolved, err := engine.ResolveInputs(ctx, rb, vars, nil)
 	if err != nil {
-		return fmt.Errorf("create debugger: %w", err)
+		return fmt.Errorf("input resolution: %w", err)
 	}
 
-	// Inject step scenario into the engine for replay
-	if stepScenario != nil {
-		d.Engine().StepScenario = stepScenario
+	// Set up trace writer
+	var tw *trace.Writer
+	if execTrace != "" {
+		var err error
+		tw, err = trace.NewFileWriter(execTrace, "run-1")
+		if err != nil {
+			return fmt.Errorf("trace: %w", err)
+		}
 	}
 
-	ctx := context.Background()
-	return d.Run(ctx)
+	// Build run config
+	baseDir := filepath.Dir(filePath)
+	hostname, _ := os.Hostname()
+	cfg := engine.RunConfig{
+		RunID:       "run-1",
+		Mode:        execMode,
+		Vars:        resolved.Vars,
+		BaseDir:     baseDir,
+		Trace:       tw,
+		Actor:       execActor,
+		Host:        hostname,
+		Version:     version,
+		RunbookPath: filePath,
+	}
+
+	eng := engine.New(rb, cfg)
+	result := eng.Run(ctx)
+
+	if result.Outcome != nil {
+		fmt.Printf("\n✓ Outcome: %s (%s)\n", result.Outcome.Category, result.Outcome.Code)
+		if result.Outcome.Meta != nil {
+			for k, v := range result.Outcome.Meta {
+				fmt.Printf("  %s: %v\n", k, v)
+			}
+		}
+	}
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	fmt.Printf("  Duration: %s\n", result.Duration)
+	return nil
 }
 
-// --- schema export ---
+func init() {
+	execCmd.Flags().StringVar(&execMode, "mode", "real", "Execution mode: real or dry-run")
+	execCmd.Flags().StringArrayVar(&execVars, "var", nil, "Set a variable (key=value), repeatable")
+	execCmd.Flags().StringVar(&execTrace, "trace", "", "Write trace to JSONL file")
+	execCmd.Flags().StringVar(&execActor, "as", "", "Actor identity for trace and approval requests")
+
+	testCmd.Flags().StringVar(&testScenario, "scenario", "", "Run only the named scenario (default: all)")
+	testCmd.Flags().BoolVar(&testJSON, "json", false, "Output results as JSON")
+	testCmd.Flags().BoolVar(&testFailFast, "fail-fast", false, "Stop after first failure")
+	testCmd.Flags().StringVar(&testTimeout, "timeout", "30s", "Per-scenario timeout")
+
+	rootCmd.AddCommand(validateCmd)
+	rootCmd.AddCommand(execCmd)
+	rootCmd.AddCommand(testCmd)
+	rootCmd.AddCommand(schemaCmd)
+	rootCmd.AddCommand(versionCmd)
+}
+
+// --- schema ---
 
 var schemaCmd = &cobra.Command{
 	Use:   "schema",
-	Short: "Schema operations",
-}
-
-var schemaExportCmd = &cobra.Command{
-	Use:   "export",
 	Short: "Export JSON Schema to stdout",
-	RunE:  runSchemaExport,
 }
 
-func runSchemaExport(cmd *cobra.Command, args []string) error {
-	data, err := schema.GenerateJSONSchema()
-	if err != nil {
-		return fmt.Errorf("generate schema: %w", err)
-	}
-	// Pretty-print the JSON
-	var out json.RawMessage = data
-	formatted, err := json.MarshalIndent(out, "", "  ")
-	if err != nil {
-		// fallback to raw
-		fmt.Println(string(data))
-		return nil
-	}
-	fmt.Println(string(formatted))
-	return nil
-}
-
-// --- version ---
-
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print version information",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("gert %s (build: %s)\n", version, commit)
-	},
-}
-
-// --- diagram ---
-
-var diagramFormat string
-var diagramOutput string
-
-var diagramCmd = &cobra.Command{
-	Use:   "diagram <runbook.yaml>",
-	Short: "Generate a visual diagram from a runbook",
-	Long: `Generate a Mermaid flowchart or ASCII diagram from a runbook YAML file.
-
-Output formats:
-  mermaid   Mermaid flowchart (default) — paste into GitHub, VS Code preview, etc.
-  ascii     Simple ASCII box diagram for terminals.`,
-	Args: cobra.ExactArgs(1),
+var schemaRunbookCmd = &cobra.Command{
+	Use:   "runbook",
+	Short: "Export kernel/v0 runbook JSON Schema",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		rb, err := schema.LoadFile(args[0])
-		if err != nil {
-			return fmt.Errorf("load runbook: %w", err)
-		}
-
-		format := diagram.Format(diagramFormat)
-		out, err := diagram.Generate(rb, format)
+		data, err := kschema.GenerateRunbookJSONSchema()
 		if err != nil {
 			return err
 		}
+		fmt.Println(string(data))
+		return nil
+	},
+}
 
-		if diagramOutput != "" {
-			if err := os.WriteFile(diagramOutput, []byte(out), 0644); err != nil {
-				return fmt.Errorf("write output: %w", err)
-			}
-			fmt.Fprintf(os.Stderr, "Diagram written to %s\n", diagramOutput)
-			return nil
+var schemaToolCmd = &cobra.Command{
+	Use:   "tool",
+	Short: "Export tool/v0 JSON Schema",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		data, err := kschema.GenerateToolJSONSchema()
+		if err != nil {
+			return err
 		}
-
-		fmt.Print(out)
+		fmt.Println(string(data))
 		return nil
 	},
 }
 
 func init() {
-	// exec flags
-	execCmd.Flags().StringVar(&execMode, "mode", "real", "Execution mode: real, replay, or dry-run")
-	execCmd.Flags().StringVar(&execScenario, "scenario", "", "Path to scenario YAML (required for replay)")
-	execCmd.Flags().StringVar(&execAs, "as", "", "Actor identity for approval recording")
-	execCmd.Flags().StringVar(&execResume, "resume", "", "Run ID to resume from last completed step")
-	execCmd.Flags().StringArrayVar(&execVars, "var", nil, "Set a variable (key=value), repeatable")
-	execCmd.Flags().StringVar(&execRebaseTime, "rebase-time", "", "Rebase scenario timestamps: 'now' or a reference timestamp. Omit to keep original times.")
-	execCmd.Flags().StringVar(&execRecord, "record", "", "Save run as a replayable scenario to this directory")
-
-	// debug flags
-	debugCmd.Flags().StringVar(&debugMode, "mode", "real", "Execution mode: real, dry-run, or replay")
-	debugCmd.Flags().StringVar(&debugScenario, "scenario", "", "Path to scenario YAML or directory (required for replay)")
-	debugCmd.Flags().StringVar(&debugAs, "as", "", "Actor identity for approvals")
-	debugCmd.Flags().StringVar(&debugRebaseTime, "rebase-time", "", "Rebase scenario timestamps: 'now' or reference timestamp")
-	debugCmd.Flags().StringArrayVar(&debugVars, "var", nil, "Set a variable (key=value), repeatable")
-
-	// schema subcommands
-	schemaCmd.AddCommand(schemaExportCmd)
-
-	// root subcommands
-	rootCmd.AddCommand(validateCmd)
-	rootCmd.AddCommand(execCmd)
-	rootCmd.AddCommand(debugCmd)
-	rootCmd.AddCommand(schemaCmd)
-	rootCmd.AddCommand(versionCmd)
-	rootCmd.AddCommand(serveCmd)
-	rootCmd.AddCommand(testCmd)
-	rootCmd.AddCommand(migrateCmd)
-	rootCmd.AddCommand(tuiCmd)
-	rootCmd.AddCommand(diagramCmd)
-
-	// diagram flags
-	diagramCmd.Flags().StringVarP(&diagramFormat, "format", "f", "mermaid", "Output format: mermaid or ascii")
-	diagramCmd.Flags().StringVarP(&diagramOutput, "output", "o", "", "Write output to file instead of stdout")
-
-	// tui flags
-	tuiCmd.Flags().StringVar(&tuiMode, "mode", "real", "Execution mode: real, replay, or dry-run")
-	tuiCmd.Flags().StringArrayVar(&tuiVars, "var", nil, "Set a variable (key=value), repeatable")
-	tuiCmd.Flags().StringVar(&tuiScenario, "scenario", "", "Path to scenario directory (for replay mode)")
-	tuiCmd.Flags().StringVar(&tuiActor, "as", "", "Actor identity for approval recording")
-	tuiCmd.Flags().BoolVar(&tuiCompact, "compact", false, "Single-column layout for narrow terminals")
-
-	// test flags
-	testCmd.Flags().StringVar(&testScenario, "scenario", "", "Run only the named scenario (default: all)")
-	testCmd.Flags().BoolVar(&testJSON, "json", false, "Output results as structured JSON")
-	testCmd.Flags().BoolVar(&testFailFast, "fail-fast", false, "Stop after first failure")
-	testCmd.Flags().StringVar(&testTimeout, "timeout", "30s", "Per-scenario timeout (e.g. 30s, 1m)")
-
-}
-
-// --- serve ---
-
-var serveCmd = &cobra.Command{
-	Use:   "serve",
-	Short: "Start JSON-RPC server for VS Code extension (stdio)",
-	Long: `Start a JSON-RPC server that communicates over stdin/stdout.
-Used by the gert VS Code extension to drive runbook execution interactively.
-Messages are newline-delimited JSON-RPC 2.0.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		s := serve.New()
-
-		// Load input providers from workspace config
-		cwd, _ := os.Getwd()
-		wsCfg, _ := inputs.LoadWorkspaceConfig(cwd)
-		var inputMgr *inputs.Manager
-		if wsCfg != nil && len(wsCfg.Providers) > 0 {
-			inputMgr = inputs.LoadProvidersFromConfig(wsCfg, cwd)
-		} else {
-			inputMgr = inputs.NewManager()
-		}
-		s.InputManager = inputMgr
-		defer inputMgr.Shutdown()
-
-		return s.Run()
-	},
-}
-
-// --- tui ---
-
-var (
-	tuiMode     string
-	tuiVars     []string
-	tuiScenario string
-	tuiActor    string
-	tuiCompact  bool
-)
-
-var tuiCmd = &cobra.Command{
-	Use:   "tui [runbook.yaml]",
-	Short: "Interactive terminal UI for governed runbook execution",
-	Long: `Launch a terminal user interface (TUI) for executing runbooks interactively.
-Uses the same governed execution engine as 'gert serve' (VS Code extension),
-rendered as a Bubble Tea app in the terminal. No VS Code required.
-
-The TUI shows a step list, command output, and status detail in a
-three-panel layout. Navigate with arrow keys, advance with Enter.`,
-	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Parse --var flags
-		vars := make(map[string]string)
-		for _, v := range tuiVars {
-			parts := strings.SplitN(v, "=", 2)
-			if len(parts) == 2 {
-				vars[parts[0]] = parts[1]
-			}
-		}
-
-		// Load input providers
-		cwd, _ := os.Getwd()
-		wsCfg, _ := inputs.LoadWorkspaceConfig(cwd)
-		var inputMgr *inputs.Manager
-		if wsCfg != nil && len(wsCfg.Providers) > 0 {
-			inputMgr = inputs.LoadProvidersFromConfig(wsCfg, cwd)
-		} else {
-			inputMgr = inputs.NewManager()
-		}
-		defer inputMgr.Shutdown()
-
-		cfg := tui.Config{
-			Runbook:     args[0],
-			Mode:        tuiMode,
-			Vars:        vars,
-			ScenarioDir: tuiScenario,
-			Actor:       tuiActor,
-			Cwd:         cwd,
-			InputMgr:    inputMgr,
-			Compact:     tuiCompact,
-		}
-
-		return tui.Run(cfg)
-	},
+	schemaCmd.AddCommand(schemaRunbookCmd)
+	schemaCmd.AddCommand(schemaToolCmd)
 }
 
 // --- test ---
@@ -757,43 +317,55 @@ var (
 
 var testCmd = &cobra.Command{
 	Use:   "test [runbook.yaml...]",
-	Short: "Run scenario replay tests for runbooks",
-	Long: `Discover scenarios for each runbook, replay them, and compare against test.yaml assertions.
-
-Scenarios are discovered by convention at:
-  {runbook-dir}/scenarios/{runbook-name}/*/inputs.yaml
-
-Only scenarios with a test.yaml file are asserted. Scenarios without
-test.yaml are reported as skipped.
-
-Exit codes:
-  0 — all asserted tests passed
-  1 — at least one asserted test failed
-  2 — runbook validation failed (no tests ran)`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: runTest,
+	Short: "Run scenario replay tests with assertions",
+	Args:  cobra.MinimumNArgs(1),
+	RunE:  runTest,
 }
 
 func runTest(cmd *cobra.Command, args []string) error {
-	timeout := 30 * time.Second
-	if testTimeout != "" {
-		d, err := time.ParseDuration(testTimeout)
-		if err != nil {
-			return fmt.Errorf("invalid --timeout %q: %w", testTimeout, err)
-		}
-		timeout = d
+	timeout, err := time.ParseDuration(testTimeout)
+	if err != nil {
+		return fmt.Errorf("invalid --timeout: %w", err)
 	}
 
-	runner := &runtest.Runner{Timeout: timeout}
-	allPassed := true
-	hasValidationError := false
+	runner := &ktesting.Runner{
+		Timeout:  timeout,
+		FailFast: testFailFast,
+	}
 
-	for _, runbookPath := range args {
-		output, err := runner.RunAll(runbookPath, testFailFast)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  ✗ %s: %v\n", runbookPath, err)
-			hasValidationError = true
-			continue
+	allPassed := true
+
+	for _, filePath := range args {
+		var output *ktesting.TestOutput
+		var err error
+
+		if testScenario != "" {
+			result, e := runner.RunScenario(filePath, testScenario)
+			if e != nil {
+				return e
+			}
+			output = &ktesting.TestOutput{
+				Runbook:   filepath.Base(filePath),
+				Scenarios: []ktesting.TestResult{*result},
+				Summary: ktesting.TestSummary{
+					Total: 1,
+				},
+			}
+			switch result.Status {
+			case "passed":
+				output.Summary.Passed = 1
+			case "failed":
+				output.Summary.Failed = 1
+			case "skipped":
+				output.Summary.Skipped = 1
+			case "error":
+				output.Summary.Errors = 1
+			}
+		} else {
+			output, err = runner.RunAll(filePath)
+			if err != nil {
+				return err
+			}
 		}
 
 		if testJSON {
@@ -807,135 +379,36 @@ func runTest(cmd *cobra.Command, args []string) error {
 		if output.Summary.Failed > 0 || output.Summary.Errors > 0 {
 			allPassed = false
 		}
-		if testFailFast && !allPassed {
-			break
-		}
 	}
 
-	if hasValidationError {
-		os.Exit(2)
-	}
 	if !allPassed {
-		os.Exit(1)
+		return fmt.Errorf("tests failed")
 	}
 	return nil
 }
 
-func printTestOutput(output *runtest.TestOutput) {
+func printTestOutput(output *ktesting.TestOutput) {
 	fmt.Printf("\n  %s\n", output.Runbook)
 	for _, s := range output.Scenarios {
+		icon := "✓"
 		switch s.Status {
-		case "passed":
-			outcome := ""
-			if s.Outcome != nil {
-				outcome = s.Outcome.Actual
-			}
-			fmt.Printf("    ✓ %-30s (%s)  %dms\n", s.ScenarioName, outcome, s.DurationMs)
 		case "failed":
-			outcome := ""
-			if s.Outcome != nil {
-				outcome = fmt.Sprintf("expected: %s, got: %s", s.Outcome.Expected, s.Outcome.Actual)
-			}
-			fmt.Printf("    ✗ %-30s (%s)  %dms\n", s.ScenarioName, outcome, s.DurationMs)
-			for _, a := range s.Assertions {
-				if !a.Passed {
-					fmt.Printf("        %s: %s\n", a.Type, a.Message)
-				}
-			}
-		case "skipped":
-			fmt.Printf("    ○ %-30s (no test.yaml)  %dms\n", s.ScenarioName, s.DurationMs)
+			icon = "✗"
 		case "error":
-			fmt.Printf("    ✗ %-30s ERROR: %s\n", s.ScenarioName, s.Error)
+			icon = "!"
+		case "skipped":
+			icon = "○"
+		}
+		fmt.Printf("    %s %s (%dms)\n", icon, s.ScenarioName, s.DurationMs)
+		if s.Error != "" {
+			fmt.Printf("      error: %s\n", s.Error)
+		}
+		for _, a := range s.Assertions {
+			if !a.Passed {
+				fmt.Printf("      ✗ %s: %s\n", a.Type, a.Message)
+			}
 		}
 	}
-	fmt.Printf("\n  %d scenarios, %d passed, %d failed, %d skipped\n",
-		output.Summary.Total, output.Summary.Passed, output.Summary.Failed, output.Summary.Skipped)
-	if output.Summary.Errors > 0 {
-		fmt.Printf("  %d errors\n", output.Summary.Errors)
-	}
-}
-
-// hasValidationErrors returns true if any error (non-warning) is present.
-func hasValidationErrors(errs []*schema.ValidationError) bool {
-	for _, e := range errs {
-		if e.Severity != "warning" {
-			return true
-		}
-	}
-	return false
-}
-
-// countValidationErrors counts non-warning errors.
-func countValidationErrors(errs []*schema.ValidationError) int {
-	n := 0
-	for _, e := range errs {
-		if e.Severity != "warning" {
-			n++
-		}
-	}
-	return n
-}
-
-// printValidationWarnings prints any warnings to stderr.
-func printValidationWarnings(errs []*schema.ValidationError) {
-	for _, e := range errs {
-		if e.Severity == "warning" {
-			fmt.Fprintf(os.Stderr, "  ⚠ [%s] %s\n", e.Phase, e.Message)
-		}
-	}
-}
-
-// --- migrate ---
-
-var migrateCmd = &cobra.Command{
-	Use:   "migrate [runbook.yaml]",
-	Short: "Migrate a runbook from v0 to v1",
-	Long: `Migrate a runbook/v0 YAML file to runbook/v1:
-  - Bumps apiVersion to runbook/v1
-
-The file is rewritten in place. Use --dry-run to preview changes.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runMigrate,
-}
-
-var migrateDryRun bool
-
-func init() {
-	migrateCmd.Flags().BoolVar(&migrateDryRun, "dry-run", false, "Preview changes without writing")
-}
-
-func runMigrate(cmd *cobra.Command, args []string) error {
-	filePath := args[0]
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", filePath, err)
-	}
-
-	rb, loadErr := schema.LoadFile(filePath)
-	if loadErr != nil {
-		return fmt.Errorf("parse %s: %w", filePath, loadErr)
-	}
-
-	if rb.APIVersion == "runbook/v1" {
-		fmt.Println("Already runbook/v1 — no migration needed.")
-		return nil
-	}
-	if rb.APIVersion != "runbook/v0" {
-		return fmt.Errorf("unexpected apiVersion %q — can only migrate from runbook/v0", rb.APIVersion)
-	}
-
-	content := string(data)
-	content = strings.Replace(content, "apiVersion: runbook/v0", "apiVersion: runbook/v1", 1)
-
-	if migrateDryRun {
-		fmt.Printf("Would bump apiVersion to runbook/v1 in %s\n", filePath)
-		return nil
-	}
-
-	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
-		return err
-	}
-	fmt.Printf("✓ Migrated %s to runbook/v1\n", filePath)
-	return nil
+	fmt.Printf("\n  %d passed, %d failed, %d skipped, %d errors (total: %d)\n",
+		output.Summary.Passed, output.Summary.Failed, output.Summary.Skipped, output.Summary.Errors, output.Summary.Total)
 }

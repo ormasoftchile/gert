@@ -125,6 +125,12 @@ func ResolveToolPath(name, baseDir, projectRoot string) string {
 		}
 	}
 
+	// 3. Working directory (repo root fallback)
+	candidate = filepath.Join("tools", name+".tool.yaml")
+	if fileExists(candidate) {
+		return candidate
+	}
+
 	return ""
 }
 

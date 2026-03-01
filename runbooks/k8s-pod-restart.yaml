@@ -1,0 +1,85 @@
+# K8s Pod Restart — approval gate with effects-based governance
+apiVersion: kernel/v0
+
+meta:
+  name: k8s-pod-restart
+  description: Kubernetes pod restart with governance approval gate
+
+  inputs:
+    pod:
+      type: string
+      required: true
+      description: Pod name to restart
+    namespace:
+      type: string
+      required: true
+      description: Kubernetes namespace
+
+  governance:
+    rules:
+      - effects: [kubernetes]
+        writes: [pods]
+        action: require-approval
+      - effects: [kubernetes]
+        action: allow
+      - default: allow
+
+tools:
+  - kubectl
+
+steps:
+  # Step 1: Get current pod status
+  - id: get_pod
+    type: tool
+    tool: kubectl
+    action: get
+    inputs:
+      resource: "pod/{{ .pod }}"
+      namespace: "{{ .namespace }}"
+
+  # Step 2: Evaluate pod status
+  - id: check_status
+    type: branch
+    branches:
+      - condition: '{{ eq .pod_status "Running" }}'
+        label: running
+        steps:
+          # Step 3: Delete pod (triggers approval due to writes: [pods])
+          - id: delete_pod
+            type: tool
+            tool: kubectl
+            action: delete
+            inputs:
+              resource: "pod/{{ .pod }}"
+              namespace: "{{ .namespace }}"
+
+          # Step 4: Verify pod comes back
+          - id: verify_pod
+            type: tool
+            tool: kubectl
+            action: get
+            inputs:
+              resource: "pod/{{ .pod }}"
+              namespace: "{{ .namespace }}"
+
+          - id: restarted_end
+            type: end
+            outcome:
+              category: resolved
+              code: pod_restarted
+              meta:
+                pod: "{{ .pod }}"
+                namespace: "{{ .namespace }}"
+
+      - condition: default
+        label: not_running
+        steps:
+          - id: not_running_end
+            type: end
+            outcome:
+              category: escalated
+              code: pod_not_running
+              meta:
+                pod: "{{ .pod }}"
+                namespace: "{{ .namespace }}"
+                status: "{{ .pod_status }}"

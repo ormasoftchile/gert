@@ -36,6 +36,8 @@ Thumbs.db
 
 # Runtime artifacts
 .runbook/
+traces/
+runs/
 
 # Temp / scratch
 .temp/

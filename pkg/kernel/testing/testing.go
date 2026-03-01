@@ -15,14 +15,14 @@ import (
 // TestSpec declares what to assert about a scenario replay result.
 // All fields are optional — omitted fields produce no assertions.
 type TestSpec struct {
-	Description       string            `yaml:"description,omitempty" json:"description,omitempty"`
-	ExpectedOutcome   string            `yaml:"expected_outcome,omitempty" json:"expected_outcome,omitempty"`     // outcome category
-	ExpectedCode      string            `yaml:"expected_code,omitempty" json:"expected_code,omitempty"`           // outcome code
-	MustReach         []string          `yaml:"must_reach,omitempty" json:"must_reach,omitempty"`                 // step IDs that must be visited
-	MustNotReach      []string          `yaml:"must_not_reach,omitempty" json:"must_not_reach,omitempty"`         // step IDs that must NOT be visited
-	ExpectedOutputs   map[string]string `yaml:"expected_outputs,omitempty" json:"expected_outputs,omitempty"`     // variable → expected value
-	ExpectedStatus    string            `yaml:"expected_status,omitempty" json:"expected_status,omitempty"`       // completed, failed, error
-	Tags              []string          `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Description     string            `yaml:"description,omitempty" json:"description,omitempty"`
+	ExpectedOutcome string            `yaml:"expected_outcome,omitempty" json:"expected_outcome,omitempty"` // outcome category
+	ExpectedCode    string            `yaml:"expected_code,omitempty" json:"expected_code,omitempty"`       // outcome code
+	MustReach       []string          `yaml:"must_reach,omitempty" json:"must_reach,omitempty"`             // step IDs that must be visited
+	MustNotReach    []string          `yaml:"must_not_reach,omitempty" json:"must_not_reach,omitempty"`     // step IDs that must NOT be visited
+	ExpectedOutputs map[string]string `yaml:"expected_outputs,omitempty" json:"expected_outputs,omitempty"` // variable → expected value
+	ExpectedStatus  string            `yaml:"expected_status,omitempty" json:"expected_status,omitempty"`   // completed, failed, error
+	Tags            []string          `yaml:"tags,omitempty" json:"tags,omitempty"`
 }
 
 // LoadTestSpec loads a test spec from a YAML file.
@@ -51,9 +51,9 @@ func ParseTestSpec(data []byte) (*TestSpec, error) {
 type RunResult struct {
 	OutcomeCategory string
 	OutcomeCode     string
-	Status          string            // completed, failed, error
-	VisitedSteps    []string          // ordered step IDs
-	Outputs         map[string]any    // final variable state
+	Status          string         // completed, failed, error
+	VisitedSteps    []string       // ordered step IDs
+	Outputs         map[string]any // final variable state
 	Error           error
 }
 
@@ -63,7 +63,7 @@ type RunResult struct {
 
 // AssertionResult is the result of a single assertion.
 type AssertionResult struct {
-	Type     string `json:"type"`     // expected_outcome, expected_code, must_reach, etc.
+	Type     string `json:"type"` // expected_outcome, expected_code, must_reach, etc.
 	Key      string `json:"key,omitempty"`
 	Expected string `json:"expected"`
 	Actual   string `json:"actual"`

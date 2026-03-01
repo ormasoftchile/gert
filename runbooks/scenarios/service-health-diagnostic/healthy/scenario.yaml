@@ -1,0 +1,16 @@
+# Scenario: Service returns 200 — healthy
+inputs:
+  hostname: srv1.example.com
+
+tool_responses:
+  "ping:check":
+    - exit_code: 0
+      stdout: "2 packets transmitted, 2 received"
+      outputs:
+        result: "2 packets transmitted, 2 received"
+  "curl:get":
+    - exit_code: 0
+      stdout: "200"
+      outputs:
+        status_code: "200"
+        response: "OK"

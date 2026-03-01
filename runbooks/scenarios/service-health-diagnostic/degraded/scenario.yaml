@@ -1,0 +1,16 @@
+# Scenario: Service returns 503 — degraded
+inputs:
+  hostname: srv1.example.com
+
+tool_responses:
+  "ping:check":
+    - exit_code: 0
+      stdout: "2 packets transmitted, 2 received"
+      outputs:
+        result: "2 packets transmitted, 2 received"
+  "curl:get":
+    - exit_code: 0
+      stdout: "503"
+      outputs:
+        status_code: "503"
+        response: "Service Unavailable"

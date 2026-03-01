@@ -6,7 +6,8 @@ package contract
 type Contract struct {
 	Inputs        map[string]ParamDef `yaml:"inputs,omitempty"      json:"inputs,omitempty"`
 	Outputs       map[string]ParamDef `yaml:"outputs,omitempty"     json:"outputs,omitempty"`
-	SideEffects   *bool               `yaml:"side_effects,omitempty" json:"side_effects,omitempty"`
+	Effects       []string            `yaml:"effects,omitempty"     json:"effects,omitempty"`
+	SideEffects   *bool               `yaml:"side_effects,omitempty" json:"side_effects,omitempty"` // DEPRECATED: use effects
 	Deterministic *bool               `yaml:"deterministic,omitempty" json:"deterministic,omitempty"`
 	Idempotent    *bool               `yaml:"idempotent,omitempty"  json:"idempotent,omitempty"`
 	Reads         []string            `yaml:"reads,omitempty"       json:"reads,omitempty"`
@@ -19,6 +20,7 @@ type ParamDef struct {
 	Required    bool   `yaml:"required,omitempty"    json:"required,omitempty"`
 	Default     any    `yaml:"default,omitempty"     json:"default,omitempty"`
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	From        string `yaml:"from,omitempty"         json:"from,omitempty"`
 }
 
 // RiskLevel classifies a contract's risk based on its behavioural properties.
@@ -32,7 +34,30 @@ const (
 )
 
 // Risk derives the risk level from a resolved contract.
+// Uses effects + writes taxonomy. Falls back to legacy side_effects for migration.
 func (c *Contract) Risk() RiskLevel {
+	hasEffects := len(c.Effects) > 0
+	hasWrites := len(c.Writes) > 0
+
+	// If effects field is present, use the new taxonomy
+	if hasEffects || c.Effects != nil {
+		if !hasEffects && !hasWrites {
+			return RiskLow
+		}
+		if hasEffects && !hasWrites {
+			return RiskLow // read-only effects (e.g., network GET)
+		}
+		// Effects + writes
+		if c.getBool(c.Idempotent, false) {
+			return RiskMedium
+		}
+		if c.getBool(c.Deterministic, false) {
+			return RiskHigh
+		}
+		return RiskCritical
+	}
+
+	// Legacy fallback: use side_effects boolean
 	if !c.getBool(c.SideEffects, true) {
 		return RiskLow
 	}
@@ -47,6 +72,7 @@ func (c *Contract) Risk() RiskLevel {
 
 // Resolved returns a copy of this contract with all nil fields replaced by
 // their defaults (side_effects=true, deterministic=false, idempotent=false).
+// If side_effects is set but effects is nil, auto-migrates to effects: [unknown].
 func (c *Contract) Resolved() Contract {
 	out := *c
 	out.SideEffects = boolPtr(c.getBool(c.SideEffects, true))

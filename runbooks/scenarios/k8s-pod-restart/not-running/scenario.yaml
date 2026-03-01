@@ -1,0 +1,12 @@
+# Scenario: Pod is not running — escalate
+inputs:
+  pod: web-api-7f8b9
+  namespace: production
+
+tool_responses:
+  "kubectl:get":
+    - exit_code: 0
+      stdout: '{"status":{"phase":"CrashLoopBackOff"}}'
+      outputs:
+        result: '{"status":{"phase":"CrashLoopBackOff"}}'
+        pod_status: "CrashLoopBackOff"

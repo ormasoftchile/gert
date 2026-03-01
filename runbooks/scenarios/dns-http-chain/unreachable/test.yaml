@@ -1,0 +1,14 @@
+# Test: DNS resolves but HTTP fails
+description: DNS resolves but HTTP returns 503 — should escalate
+expected_status: completed
+expected_outcome: escalated
+expected_code: dns_http_fail
+must_reach:
+  - dns_resolve
+  - http_check
+  - unreachable_end
+must_not_reach:
+  - reachable_end
+expected_outputs:
+  resolved_ip: "93.184.216.34"
+  status_code: "503"

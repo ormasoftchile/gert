@@ -3,6 +3,10 @@ package engine
 
 import (
 	"bufio"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -23,13 +27,52 @@ import (
 // ToolExecutor executes tool actions. The default implementation spawns processes;
 // replay mode substitutes canned responses.
 type ToolExecutor interface {
-	Execute(toolDef *schema.ToolDefinition, actionName string, inputs map[string]any, vars map[string]any) (*executor.Result, error)
+	Execute(ctx context.Context, toolDef *schema.ToolDefinition, actionName string, inputs map[string]any, vars map[string]any) (*executor.Result, error)
+}
+
+// ApprovalProvider submits approval requests and optionally waits for responses.
+type ApprovalProvider interface {
+	// Submit sends an approval request and returns a ticket immediately.
+	Submit(ctx context.Context, req ApprovalRequest) (*ApprovalTicket, error)
+	// Wait blocks until the ticket is resolved or context is cancelled.
+	Wait(ctx context.Context, ticket *ApprovalTicket) (*ApprovalResponse, error)
+}
+
+// ApprovalRequest contains the context for an approval decision.
+type ApprovalRequest struct {
+	RunID        string         `json:"run_id"`
+	StepID       string         `json:"step_id"`
+	RunbookName  string         `json:"runbook_name"`
+	RiskLevel    string         `json:"risk_level"`
+	Contract     map[string]any `json:"contract"`
+	Inputs       map[string]any `json:"inputs"`
+	MinApprovers int            `json:"min_approvers"`
+}
+
+// ApprovalTicket represents a pending approval.
+type ApprovalTicket struct {
+	TicketID string    `json:"ticket_id"`
+	Status   string    `json:"status"` // pending, approved, rejected, expired
+	Created  time.Time `json:"created"`
+}
+
+// ApprovalResponse is the result of an approval decision.
+type ApprovalResponse struct {
+	TicketID     string    `json:"ticket_id"`
+	Approved     bool      `json:"approved"`
+	ApproverID   string    `json:"approver_id"`
+	Method       string    `json:"method"`
+	Timestamp    time.Time `json:"timestamp"`
+	Reason       string    `json:"reason,omitempty"`
+	Signature    string    `json:"signature,omitempty"`
+	SignatureAlg string    `json:"signature_alg,omitempty"`
+	KeyID        string    `json:"key_id,omitempty"`
 }
 
 // defaultExecutor delegates to executor.RunTool.
 type defaultExecutor struct{}
 
-func (d *defaultExecutor) Execute(td *schema.ToolDefinition, action string, inputs map[string]any, vars map[string]any) (*executor.Result, error) {
+func (d *defaultExecutor) Execute(ctx context.Context, td *schema.ToolDefinition, action string, inputs map[string]any, vars map[string]any) (*executor.Result, error) {
 	return executor.RunTool(td, action, inputs, vars)
 }
 
@@ -41,9 +84,14 @@ type RunConfig struct {
 	BaseDir     string
 	ProjectRoot string
 	Trace       *trace.Writer
-	Stdin       io.Reader      // for manual step input; defaults to os.Stdin
-	Stdout      io.Writer      // for output; defaults to os.Stdout
-	ToolExec    ToolExecutor   // custom tool executor (e.g., replay); nil uses default
+	Stdin       io.Reader        // for manual step input; defaults to os.Stdin
+	Stdout      io.Writer        // for output; defaults to os.Stdout
+	ToolExec    ToolExecutor     // custom tool executor (e.g., replay); nil uses default
+	Approval    ApprovalProvider // custom approval provider; nil uses stdin
+	Actor       string           // actor identity for trace attribution
+	Host        string           // host identifier for trace
+	Version     string           // gert version for trace
+	RunbookPath string           // path to runbook file (for hashing)
 }
 
 // RunResult is the outcome of executing a runbook.
@@ -63,6 +111,7 @@ type Engine struct {
 	tools        map[string]*schema.ToolDefinition
 	startTime    time.Time
 	toolExec     ToolExecutor
+	approval     ApprovalProvider
 	VisitedSteps []string // ordered list of step IDs executed (for test harness)
 }
 
@@ -97,19 +146,28 @@ func New(rb *schema.Runbook, cfg RunConfig) *Engine {
 		te = &defaultExecutor{}
 	}
 
+	ap := cfg.Approval
+	if ap == nil {
+		ap = &stdinApprovalProvider{stdin: cfg.Stdin, stdout: cfg.Stdout}
+	}
+
 	return &Engine{
 		cfg:      cfg,
 		rb:       rb,
 		vars:     vars,
 		trace:    cfg.Trace,
 		toolExec: te,
-		tools: make(map[string]*schema.ToolDefinition),
+		approval: ap,
+		tools:    make(map[string]*schema.ToolDefinition),
 	}
 }
 
 // Run executes the runbook sequentially.
-func (e *Engine) Run() *RunResult {
+func (e *Engine) Run(ctx context.Context) *RunResult {
 	e.startTime = time.Now()
+
+	// Pre-load tool definitions (before run_start so we can hash them)
+	e.loadTools()
 
 	// Emit run_start
 	if e.trace != nil {
@@ -121,14 +179,70 @@ func (e *Engine) Run() *RunResult {
 		for k, v := range e.rb.Meta.Constants {
 			constantsAny[k] = v
 		}
-		e.trace.EmitRunStart(e.rb.Meta.Name, inputsAny, constantsAny)
+		runStartData := map[string]any{
+			"runbook": e.rb.Meta.Name,
+		}
+		if len(inputsAny) > 0 {
+			runStartData["inputs"] = inputsAny
+		}
+		if len(constantsAny) > 0 {
+			runStartData["constants"] = constantsAny
+		}
+		if e.cfg.Actor != "" {
+			runStartData["actor"] = e.cfg.Actor
+		}
+		if e.cfg.Host != "" {
+			runStartData["host"] = e.cfg.Host
+		}
+		if e.cfg.Version != "" {
+			runStartData["gert_version"] = e.cfg.Version
+		}
+		// Compute runbook hash
+		if e.cfg.RunbookPath != "" {
+			if h, err := fileHash(e.cfg.RunbookPath); err == nil {
+				runStartData["runbook_hash"] = h
+			}
+		}
+		// Compute tool hashes
+		toolHashes := make(map[string]string)
+		for name := range e.tools {
+			path := validate.ResolveToolPath(name, e.cfg.BaseDir, e.cfg.ProjectRoot)
+			if path != "" {
+				if h, err := fileHash(path); err == nil {
+					toolHashes[name] = h
+				}
+			}
+		}
+		if len(toolHashes) > 0 {
+			runStartData["tool_hashes"] = toolHashes
+		}
+		e.trace.Emit(trace.EventRunStart, runStartData)
 	}
 
-	// Pre-load tool definitions
-	e.loadTools()
+	// Configure secret redaction on trace writer
+	if e.trace != nil {
+		var secretEnvVars []string
+		// Collect from runbook meta
+		for _, s := range e.rb.Meta.Secrets {
+			if s.Env != "" {
+				secretEnvVars = append(secretEnvVars, s.Env)
+			}
+		}
+		// Collect from loaded tool definitions
+		for _, td := range e.tools {
+			for _, s := range td.Meta.Secrets {
+				if s.Env != "" {
+					secretEnvVars = append(secretEnvVars, s.Env)
+				}
+			}
+		}
+		if len(secretEnvVars) > 0 {
+			e.trace.SetSecrets(secretEnvVars)
+		}
+	}
 
 	// Execute steps
-	result := e.executeSteps(e.rb.Steps, true)
+	result := e.executeSteps(ctx, e.rb.Steps, true)
 
 	duration := time.Since(e.startTime)
 	result.Duration = duration
@@ -154,7 +268,7 @@ func (e *Engine) Run() *RunResult {
 // executeSteps runs a list of steps sequentially.
 // If requireEnd is true, returns an error if execution completes without an end step.
 // For top-level execution requireEnd=true; for parallel/branch sub-blocks requireEnd=false.
-func (e *Engine) executeSteps(steps []schema.Step, requireEnd bool) *RunResult {
+func (e *Engine) executeSteps(ctx context.Context, steps []schema.Step, requireEnd bool) *RunResult {
 	// retryCounts tracks how many times a backward next has jumped to each target
 	retryCounts := make(map[string]int)
 
@@ -186,7 +300,7 @@ func (e *Engine) executeSteps(steps []schema.Step, requireEnd bool) *RunResult {
 
 		// Handle for_each expansion
 		if step.ForEach != nil {
-			result := e.executeForEach(step, stepID)
+			result := e.executeForEach(ctx, step, stepID)
 			if result != nil {
 				return result
 			}
@@ -194,7 +308,7 @@ func (e *Engine) executeSteps(steps []schema.Step, requireEnd bool) *RunResult {
 		}
 
 		// Execute the step
-		result := e.executeStep(step, stepID)
+		result := e.executeStep(ctx, step, stepID)
 		if result != nil {
 			return result
 		}
@@ -248,11 +362,36 @@ func (e *Engine) executeSteps(steps []schema.Step, requireEnd bool) *RunResult {
 
 // executeStep dispatches a single step by type.
 // Returns nil to continue to next step, or a RunResult to terminate.
-func (e *Engine) executeStep(step schema.Step, stepID string) *RunResult {
+func (e *Engine) executeStep(ctx context.Context, step schema.Step, stepID string) *RunResult {
 	start := time.Now()
 
 	// Track visited steps for test harness
 	e.VisitedSteps = append(e.VisitedSteps, stepID)
+
+	// --- Repeat block: if step has a repeat, execute it as a repeat block ---
+	if step.Repeat != nil {
+		return e.executeRepeat(ctx, step, stepID, start)
+	}
+
+	// --- Scope enter: save vars snapshot for isolation ---
+	var scopeSnapshot map[string]any
+	if step.Scope != "" {
+		scopeSnapshot = e.forkVars()
+		// Namespace: prefix current scope vars under scope path
+		e.vars["_scope"] = step.Scope
+	}
+
+	// --- Visibility: emit trace event if visibility is declared ---
+	if step.Visibility != nil && e.trace != nil {
+		visData := map[string]any{"step_id": stepID}
+		if len(step.Visibility.Allow) > 0 {
+			visData["allow"] = step.Visibility.Allow
+		}
+		if len(step.Visibility.Deny) > 0 {
+			visData["deny"] = step.Visibility.Deny
+		}
+		e.trace.Emit(trace.EventVisibilityApplied, visData)
+	}
 
 	// Resolve contract and evaluate governance for executable steps
 	resolvedContract := e.resolveContract(step)
@@ -282,7 +421,7 @@ func (e *Engine) executeStep(step schema.Step, stepID string) *RunResult {
 			}
 
 		case schema.DecisionRequireApproval:
-			approved := e.requestApproval(stepID, decision)
+			approved := e.requestApproval(ctx, stepID, decision)
 			if !approved {
 				if e.trace != nil {
 					e.trace.EmitStepStart(stepID, string(step.Type), nil)
@@ -300,21 +439,84 @@ func (e *Engine) executeStep(step schema.Step, stepID string) *RunResult {
 
 	switch step.Type {
 	case schema.StepTool:
-		return e.executeTool(step, stepID, start)
+		result := e.executeTool(ctx, step, stepID, start)
+		e.handlePostStep(step, stepID, scopeSnapshot)
+		return result
 	case schema.StepManual:
-		return e.executeManual(step, stepID, start)
+		result := e.executeManual(ctx, step, stepID, start)
+		e.handlePostStep(step, stepID, scopeSnapshot)
+		return result
 	case schema.StepAssert:
-		return e.executeAssert(step, stepID, start)
+		result := e.executeAssert(ctx, step, stepID, start)
+		e.handlePostStep(step, stepID, scopeSnapshot)
+		return result
 	case schema.StepBranch:
-		return e.executeBranch(step, stepID)
+		result := e.executeBranch(ctx, step, stepID)
+		e.handlePostStep(step, stepID, scopeSnapshot)
+		return result
 	case schema.StepParallel:
-		return e.executeParallel(step, stepID)
+		result := e.executeParallel(ctx, step, stepID)
+		e.handlePostStep(step, stepID, scopeSnapshot)
+		return result
 	case schema.StepEnd:
-		return e.executeEnd(step, stepID, start)
+		return e.executeEnd(ctx, step, stepID, start)
 	case schema.StepExtension:
-		return e.executeExtension(step, stepID, start)
+		result := e.executeExtension(ctx, step, stepID, start)
+		e.handlePostStep(step, stepID, scopeSnapshot)
+		return result
 	default:
 		return &RunResult{Status: "error", Error: fmt.Errorf("step %s: unsupported type %q", stepID, step.Type)}
+	}
+}
+
+// handlePostStep processes scope exit, export promotion, and cleanup after step execution.
+func (e *Engine) handlePostStep(step schema.Step, stepID string, scopeSnapshot map[string]any) {
+	// --- Export: promote scope-local outputs to global namespace ---
+	if len(step.Export) > 0 {
+		for _, name := range step.Export {
+			val, exists := e.vars[name]
+			if !exists {
+				// Also check under step ID namespace
+				if stepOutputs, ok := e.vars[stepID].(map[string]any); ok {
+					val, exists = stepOutputs[name]
+				}
+			}
+			if exists {
+				// Check collision with existing global
+				if scopeSnapshot != nil {
+					if _, hadBefore := scopeSnapshot[name]; hadBefore {
+						// Collision — this is an error, but we report it and continue
+						// (the engine doesn't halt on export collision in v0, traces it)
+					}
+				}
+				e.vars[name] = val
+
+				if e.trace != nil {
+					e.trace.Emit(trace.EventScopeExport, map[string]any{
+						"step_id": stepID,
+						"field":   name,
+						"scope":   step.Scope,
+					})
+				}
+			}
+		}
+	}
+
+	// --- Scope exit: restore vars from snapshot, keeping exports ---
+	if scopeSnapshot != nil && step.Scope != "" {
+		exports := make(map[string]any)
+		for _, name := range step.Export {
+			if val, ok := e.vars[name]; ok {
+				exports[name] = val
+			}
+		}
+		// Restore pre-scope state
+		e.vars = scopeSnapshot
+		// Apply exports
+		for k, v := range exports {
+			e.vars[k] = v
+		}
+		delete(e.vars, "_scope")
 	}
 }
 
@@ -322,7 +524,7 @@ func (e *Engine) executeStep(step schema.Step, stepID string) *RunResult {
 // Step type executors
 // ---------------------------------------------------------------------------
 
-func (e *Engine) executeTool(step schema.Step, stepID string, start time.Time) *RunResult {
+func (e *Engine) executeTool(ctx context.Context, step schema.Step, stepID string, start time.Time) *RunResult {
 	if e.trace != nil {
 		e.trace.EmitStepStart(stepID, "tool", nil)
 	}
@@ -334,33 +536,66 @@ func (e *Engine) executeTool(step schema.Step, stepID string, start time.Time) *
 		return &RunResult{Status: "error", Error: fmt.Errorf("step %s: %w", stepID, err)}
 	}
 
-	// Dry-run mode: report what would execute, skip actual execution
-	if e.cfg.Mode == "dry-run" {
-		fmt.Fprintf(e.cfg.Stdout, "  [dry-run] tool %s:%s\n", step.Tool, step.Action)
-		fmt.Fprintf(e.cfg.Stdout, "    inputs: %v\n", resolvedInputs)
-		td := e.tools[step.Tool]
-		if td != nil && len(td.Meta.Platform) > 0 {
-			fmt.Fprintf(e.cfg.Stdout, "    platform: %v\n", td.Meta.Platform)
-		}
-		if td != nil && td.Meta.Binary != "" {
-			fmt.Fprintf(e.cfg.Stdout, "    binary: %s\n", td.Meta.Binary)
-		}
+	// Dry-run and probe modes
+	if e.cfg.Mode == "dry-run" || e.cfg.Mode == "probe" {
+		isProbe := e.cfg.Mode == "probe"
+
 		c := e.resolveContract(step)
-		if c != nil {
-			r := c.Resolved()
-			fmt.Fprintf(e.cfg.Stdout, "    contract: side_effects=%v deterministic=%v idempotent=%v risk=%s\n",
-				*r.SideEffects, *r.Deterministic, *r.Idempotent, r.Risk())
-			if len(r.Reads) > 0 {
-				fmt.Fprintf(e.cfg.Stdout, "    reads: %v\n", r.Reads)
+
+		// In probe mode, skip steps with writes (non-read-only)
+		if isProbe && c != nil && len(c.Writes) > 0 {
+			fmt.Fprintf(e.cfg.Stdout, "  [probe] SKIP %s:%s (has writes)\n", step.Tool, step.Action)
+			if e.trace != nil {
+				e.trace.EmitStepStart(stepID, "tool", nil)
+				e.trace.EmitStepComplete(stepID, trace.StatusSkipped, nil, time.Since(start), nil)
 			}
-			if len(r.Writes) > 0 {
-				fmt.Fprintf(e.cfg.Stdout, "    writes: %v\n", r.Writes)
+			return nil
+		}
+
+		// In probe mode, read-only tools fall through to actual execution below
+		if !isProbe {
+			fmt.Fprintf(e.cfg.Stdout, "  [dry-run] tool %s:%s\n", step.Tool, step.Action)
+			fmt.Fprintf(e.cfg.Stdout, "    inputs: %v\n", resolvedInputs)
+			td := e.tools[step.Tool]
+			if td != nil && len(td.Meta.Platform) > 0 {
+				fmt.Fprintf(e.cfg.Stdout, "    platform: %v\n", td.Meta.Platform)
 			}
+			if td != nil && td.Meta.Binary != "" {
+				fmt.Fprintf(e.cfg.Stdout, "    binary: %s\n", td.Meta.Binary)
+			}
+			if c == nil {
+				c = e.resolveContract(step)
+			}
+			if c != nil {
+				r := c.Resolved()
+				if len(r.Effects) > 0 {
+					fmt.Fprintf(e.cfg.Stdout, "    effects: %v\n", r.Effects)
+				}
+				fmt.Fprintf(e.cfg.Stdout, "    deterministic=%v idempotent=%v risk=%s\n",
+					*r.Deterministic, *r.Idempotent, r.Risk())
+				if len(r.Reads) > 0 {
+					fmt.Fprintf(e.cfg.Stdout, "    reads: %v\n", r.Reads)
+				}
+				if len(r.Writes) > 0 {
+					fmt.Fprintf(e.cfg.Stdout, "    writes: %v\n", r.Writes)
+				}
+			}
+			// Show secrets status
+			if td != nil && len(td.Meta.Secrets) > 0 {
+				for _, s := range td.Meta.Secrets {
+					status := "✓ set"
+					if os.Getenv(s.Env) == "" {
+						status = "✗ missing"
+					}
+					fmt.Fprintf(e.cfg.Stdout, "    secret %s: %s\n", s.Env, status)
+				}
+			}
+			if e.trace != nil {
+				e.trace.EmitStepComplete(stepID, trace.StatusSkipped, resolvedInputs, time.Since(start), nil)
+			}
+			return nil
 		}
-		if e.trace != nil {
-			e.trace.EmitStepComplete(stepID, trace.StatusSkipped, resolvedInputs, time.Since(start), nil)
-		}
-		return nil
+		// probe mode: read-only tools fall through to actual execution
 	}
 
 	// Load tool definition
@@ -371,7 +606,7 @@ func (e *Engine) executeTool(step schema.Step, stepID string, start time.Time) *
 	}
 
 	// Execute via tool executor (default or replay)
-	result, err := e.toolExec.Execute(td, step.Action, resolvedInputs, e.vars)
+	result, err := e.toolExec.Execute(ctx, td, step.Action, resolvedInputs, e.vars)
 	if err != nil {
 		e.emitStepError(stepID, start, "exec", err.Error())
 		return &RunResult{Status: "error", Error: fmt.Errorf("step %s: %w", stepID, err)}
@@ -386,6 +621,39 @@ func (e *Engine) executeTool(step schema.Step, stepID string, start time.Time) *
 	// Store under step ID namespace
 	if stepID != "" {
 		e.vars[stepID] = result.Outputs
+	}
+
+	// Contract violation detection
+	c := e.resolveContract(step)
+	if c != nil && c.Outputs != nil {
+		// Check for undeclared outputs (outputs not in contract)
+		for k := range result.Outputs {
+			if _, declared := c.Outputs[k]; !declared {
+				if e.trace != nil {
+					e.trace.Emit(trace.EventContractViolation, map[string]any{
+						"step_id": stepID,
+						"kind":    "undeclared_output",
+						"field":   k,
+						"message": fmt.Sprintf("output %q not declared in contract", k),
+					})
+				}
+			}
+		}
+		// Check for missing declared outputs
+		for k, param := range c.Outputs {
+			if param.Required {
+				if _, present := result.Outputs[k]; !present {
+					if e.trace != nil {
+						e.trace.Emit(trace.EventContractViolation, map[string]any{
+							"step_id": stepID,
+							"kind":    "missing_output",
+							"field":   k,
+							"message": fmt.Sprintf("declared output %q missing from result", k),
+						})
+					}
+				}
+			}
+		}
 	}
 
 	duration := time.Since(start)
@@ -408,7 +676,7 @@ func (e *Engine) executeTool(step schema.Step, stepID string, start time.Time) *
 	return nil
 }
 
-func (e *Engine) executeManual(step schema.Step, stepID string, start time.Time) *RunResult {
+func (e *Engine) executeManual(ctx context.Context, step schema.Step, stepID string, start time.Time) *RunResult {
 	if e.trace != nil {
 		e.trace.EmitStepStart(stepID, "manual", nil)
 	}
@@ -457,7 +725,7 @@ func (e *Engine) executeManual(step schema.Step, stepID string, start time.Time)
 	return nil
 }
 
-func (e *Engine) executeAssert(step schema.Step, stepID string, start time.Time) *RunResult {
+func (e *Engine) executeAssert(ctx context.Context, step schema.Step, stepID string, start time.Time) *RunResult {
 	if e.trace != nil {
 		e.trace.EmitStepStart(stepID, "assert", nil)
 	}
@@ -502,7 +770,7 @@ func (e *Engine) executeAssert(step schema.Step, stepID string, start time.Time)
 	return nil
 }
 
-func (e *Engine) executeBranch(step schema.Step, stepID string) *RunResult {
+func (e *Engine) executeBranch(ctx context.Context, step schema.Step, stepID string) *RunResult {
 	for _, br := range step.Branches {
 		matches, err := eval.EvalBool(br.Condition, e.vars)
 		if err != nil {
@@ -512,7 +780,7 @@ func (e *Engine) executeBranch(step schema.Step, stepID string) *RunResult {
 			if e.trace != nil {
 				e.trace.EmitBranchEnter(br.Label, br.Condition)
 			}
-			result := e.executeSteps(br.Steps, false)
+			result := e.executeSteps(ctx, br.Steps, false)
 			if e.trace != nil {
 				e.trace.EmitBranchExit(br.Label)
 			}
@@ -528,7 +796,7 @@ func (e *Engine) executeBranch(step schema.Step, stepID string) *RunResult {
 
 // executeParallel runs parallel branches concurrently with state isolation.
 // Contract conflicts cause serialization (sequential fallback).
-func (e *Engine) executeParallel(step schema.Step, stepID string) *RunResult {
+func (e *Engine) executeParallel(ctx context.Context, step schema.Step, stepID string) *RunResult {
 	if len(step.Branches) < 2 {
 		return &RunResult{Status: "error", Error: fmt.Errorf("step %s: parallel requires at least 2 branches", stepID)}
 	}
@@ -590,7 +858,7 @@ func (e *Engine) executeParallel(step schema.Step, stepID string) *RunResult {
 
 	if hasConflicts {
 		// Serialized execution — run branches sequentially
-		return e.executeParallelSerialized(step, stepID)
+		return e.executeParallelSerialized(ctx, step, stepID)
 	}
 
 	// Concurrent execution — fork state per branch, run in goroutines
@@ -606,7 +874,7 @@ func (e *Engine) executeParallel(step schema.Step, stepID string) *RunResult {
 			forkedVars := e.forkVars()
 			branchEngine := e.forkEngine(forkedVars)
 
-			res := branchEngine.executeSteps(branch.Steps, false)
+			res := branchEngine.executeSteps(ctx, branch.Steps, false)
 			results[idx] = branchResult{
 				index:   idx,
 				label:   branch.Label,
@@ -622,13 +890,13 @@ func (e *Engine) executeParallel(step schema.Step, stepID string) *RunResult {
 }
 
 // executeParallelSerialized runs parallel branches sequentially due to conflicts.
-func (e *Engine) executeParallelSerialized(step schema.Step, stepID string) *RunResult {
+func (e *Engine) executeParallelSerialized(ctx context.Context, step schema.Step, stepID string) *RunResult {
 	results := make([]branchResult, len(step.Branches))
 	for i, br := range step.Branches {
 		forkedVars := e.forkVars()
 		branchEngine := e.forkEngine(forkedVars)
 
-		res := branchEngine.executeSteps(br.Steps, false)
+		res := branchEngine.executeSteps(ctx, br.Steps, false)
 		results[i] = branchResult{
 			index:   i,
 			label:   br.Label,
@@ -723,6 +991,58 @@ func (e *Engine) forkEngine(vars map[string]any) *Engine {
 	}
 }
 
+// executeRepeat runs a repeat block up to max iterations,
+// stopping early if the `until` expression evaluates to true.
+func (e *Engine) executeRepeat(ctx context.Context, step schema.Step, stepID string, start time.Time) *RunResult {
+	rep := step.Repeat
+	if rep.Max <= 0 {
+		return &RunResult{Status: "error", Error: fmt.Errorf("step %s: repeat.max must be > 0", stepID)}
+	}
+
+	if e.trace != nil {
+		e.trace.Emit(trace.EventRepeatStart, map[string]any{
+			"step_id": stepID,
+			"max":     rep.Max,
+			"until":   rep.Until,
+		})
+	}
+
+	for i := 0; i < rep.Max; i++ {
+		// Set iteration vars
+		e.vars["repeat"] = map[string]any{
+			"index": i,
+			"round": i,
+		}
+
+		if e.trace != nil {
+			e.trace.Emit(trace.EventRepeatIteration, map[string]any{
+				"step_id":   stepID,
+				"iteration": i,
+			})
+		}
+
+		// Execute the repeat's inner steps
+		result := e.executeSteps(ctx, rep.Steps, false)
+		if result != nil && (result.Status == "failed" || result.Status == "error") {
+			return result
+		}
+		// If inner steps produced an outcome (end step), propagate it
+		if result != nil && result.Outcome != nil {
+			return result
+		}
+
+		// Check until condition
+		if rep.Until != "" {
+			val, err := eval.EvalBool(rep.Until, e.vars)
+			if err == nil && val {
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
 // collectNewVars returns variables that were added or changed relative to parentVars.
 func (e *Engine) collectNewVars(parentVars map[string]any) map[string]any {
 	new_ := make(map[string]any)
@@ -759,7 +1079,7 @@ func walkBranchContracts(steps []schema.Step, e *Engine, reads, writes *[]string
 // ---------------------------------------------------------------------------
 
 // executeForEach expands a step with a for_each modifier.
-func (e *Engine) executeForEach(step schema.Step, stepID string) *RunResult {
+func (e *Engine) executeForEach(ctx context.Context, step schema.Step, stepID string) *RunResult {
 	fe := step.ForEach
 
 	// Resolve the `over` expression to get the list.
@@ -811,17 +1131,19 @@ func (e *Engine) executeForEach(step schema.Step, stepID string) *RunResult {
 	innerStep.ForEach = nil
 
 	if fe.Parallel {
-		return e.executeForEachParallel(innerStep, stepID, fe.As, items)
+		return e.executeForEachParallel(ctx, innerStep, stepID, fe.As, fe.Key, items)
 	}
-	return e.executeForEachSequential(innerStep, stepID, fe.As, items)
+	return e.executeForEachSequential(ctx, innerStep, stepID, fe.As, fe.Key, items)
 }
 
 // executeForEachSequential runs the step once per item, sequentially.
-func (e *Engine) executeForEachSequential(step schema.Step, stepID, asVar string, items []any) *RunResult {
-	accumulated := make([]any, 0, len(items))
+func (e *Engine) executeForEachSequential(ctx context.Context, step schema.Step, stepID, asVar, keyExpr string, items []any) *RunResult {
+	// If key expression is provided, produce map outputs; otherwise list
+	useMap := keyExpr != ""
+	var accumulatedList []any
+	accumulatedMap := make(map[string]any)
 
 	for i, item := range items {
-		// Emit for_each_item
 		if e.trace != nil {
 			e.trace.Emit(trace.EventForEachItem, map[string]any{
 				"step_id": stepID,
@@ -830,37 +1152,48 @@ func (e *Engine) executeForEachSequential(step schema.Step, stepID, asVar string
 			})
 		}
 
-		// Set the iteration variable
 		e.vars[asVar] = item
 
 		iterID := fmt.Sprintf("%s[%d]", stepID, i)
-		result := e.executeStep(step, iterID)
+		result := e.executeStep(ctx, step, iterID)
 
-		// Collect outputs for accumulation
-		if iterID != "" {
-			if outputs, ok := e.vars[iterID]; ok {
-				accumulated = append(accumulated, outputs)
+		// Collect outputs
+		if outputs, ok := e.vars[iterID]; ok {
+			if useMap {
+				key, err := eval.Resolve(keyExpr, e.vars)
+				if err != nil {
+					return &RunResult{Status: "error", Error: fmt.Errorf("step %s: for_each key: %w", stepID, err)}
+				}
+				if _, exists := accumulatedMap[key]; exists {
+					return &RunResult{Status: "error", Error: fmt.Errorf("step %s: for_each key %q duplicated", stepID, key)}
+				}
+				accumulatedMap[key] = outputs
+			} else {
+				accumulatedList = append(accumulatedList, outputs)
 			}
 		}
 
 		if result != nil {
-			// Store partial accumulation
-			e.vars[stepID] = accumulated
+			if useMap {
+				e.vars[stepID] = accumulatedMap
+			} else {
+				e.vars[stepID] = accumulatedList
+			}
 			return result
 		}
 	}
 
-	// Store accumulated results under step ID
-	e.vars[stepID] = accumulated
-
-	// Remove the iteration variable (no longer in scope)
+	if useMap {
+		e.vars[stepID] = accumulatedMap
+	} else {
+		e.vars[stepID] = accumulatedList
+	}
 	delete(e.vars, asVar)
-
 	return nil
 }
 
 // executeForEachParallel runs the step once per item, concurrently.
-func (e *Engine) executeForEachParallel(step schema.Step, stepID, asVar string, items []any) *RunResult {
+func (e *Engine) executeForEachParallel(ctx context.Context, step schema.Step, stepID, asVar, keyExpr string, items []any) *RunResult {
 	type iterResult struct {
 		index   int
 		result  *RunResult
@@ -891,7 +1224,7 @@ func (e *Engine) executeForEachParallel(step schema.Step, stepID, asVar string, 
 				})
 			}
 
-			res := iterEngine.executeStep(step, iterID)
+			res := iterEngine.executeStep(ctx, step, iterID)
 			var outputs any
 			if val, ok := iterEngine.vars[iterID]; ok {
 				outputs = val
@@ -926,7 +1259,7 @@ func (e *Engine) executeForEachParallel(step schema.Step, stepID, asVar string, 
 	return nil
 }
 
-func (e *Engine) executeEnd(step schema.Step, stepID string, start time.Time) *RunResult {
+func (e *Engine) executeEnd(ctx context.Context, step schema.Step, stepID string, start time.Time) *RunResult {
 	if e.trace != nil {
 		e.trace.EmitStepStart(stepID, "end", nil)
 	}
@@ -958,7 +1291,7 @@ func (e *Engine) executeEnd(step schema.Step, stepID string, start time.Time) *R
 	}
 }
 
-func (e *Engine) executeExtension(step schema.Step, stepID string, start time.Time) *RunResult {
+func (e *Engine) executeExtension(ctx context.Context, step schema.Step, stepID string, start time.Time) *RunResult {
 	// Extensions are dispatched to external executors — out of scope for Phase 3.
 	// For now, emit a trace event and skip.
 	if e.trace != nil {
@@ -1131,22 +1464,129 @@ func matchPattern(pattern, value string) (bool, error) {
 	return re.MatchString(value), nil
 }
 
-func (e *Engine) requestApproval(stepID string, decision governance.Decision) bool {
-	if e.cfg.Mode == "dry-run" {
+func (e *Engine) requestApproval(ctx context.Context, stepID string, decision governance.Decision) bool {
+	if e.cfg.Mode == "dry-run" || e.cfg.Mode == "replay" {
 		return true
 	}
-	min := decision.MinApprovers
-	if min == 0 {
-		min = 1
+
+	req := ApprovalRequest{
+		RunID:        e.cfg.RunID,
+		StepID:       stepID,
+		RunbookName:  e.rb.Meta.Name,
+		RiskLevel:    string(decision.RiskLevel),
+		MinApprovers: decision.MinApprovers,
 	}
-	fmt.Fprintf(e.cfg.Stdout, "\n  ⚠ Step %s requires approval (risk: %s, min approvers: %d)\n", stepID, decision.RiskLevel, min)
-	fmt.Fprintf(e.cfg.Stdout, "  Approve? [y/N]: ")
-	scanner := bufio.NewScanner(e.cfg.Stdin)
+
+	ticket, err := e.approval.Submit(ctx, req)
+	if err != nil {
+		return false
+	}
+
+	// Emit approval_submitted trace event
+	if e.trace != nil {
+		e.trace.Emit(trace.EventType("approval_submitted"), map[string]any{
+			"ticket_id":  ticket.TicketID,
+			"step_id":    stepID,
+			"risk_level": string(decision.RiskLevel),
+		})
+	}
+
+	// Collect required number of approvals
+	minApprovers := decision.MinApprovers
+	if minApprovers < 1 {
+		minApprovers = 1
+	}
+
+	approvalCount := 0
+	for i := 0; i < minApprovers; i++ {
+		resp, err := e.approval.Wait(ctx, ticket)
+		if err != nil {
+			return false
+		}
+
+		// Verify signature if present and required
+		if resp.Signature != "" {
+			// Signature verification: if the response has a signature,
+			// check it against the signing key. Invalid → treated as rejection.
+			sigKey := os.Getenv("GERT_APPROVAL_SIGNING_KEY")
+			if sigKey != "" {
+				valid := verifyApprovalSignature(resp, sigKey)
+				if !valid {
+					if e.trace != nil {
+						e.trace.Emit(trace.EventContractViolation, map[string]any{
+							"step_id": stepID,
+							"kind":    "invalid_approval_signature",
+							"message": "approval response signature verification failed",
+						})
+					}
+					return false
+				}
+			}
+		}
+
+		// Emit approval_resolved trace event
+		if e.trace != nil {
+			e.trace.Emit(trace.EventType("approval_resolved"), map[string]any{
+				"ticket_id":    resp.TicketID,
+				"approved":     resp.Approved,
+				"approver_id":  resp.ApproverID,
+				"method":       resp.Method,
+				"approver_num": i + 1,
+				"of_required":  minApprovers,
+			})
+		}
+
+		if !resp.Approved {
+			return false
+		}
+		approvalCount++
+	}
+
+	return approvalCount >= minApprovers
+}
+
+// verifyApprovalSignature checks the HMAC signature of an approval response.
+func verifyApprovalSignature(resp *ApprovalResponse, sigKey string) bool {
+	mac := hmac.New(sha256.New, []byte(sigKey))
+	payload := resp.TicketID + ":" + resp.ApproverID + ":" + fmt.Sprintf("%v", resp.Approved)
+	mac.Write([]byte(payload))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(resp.Signature), []byte(expected))
+}
+
+// stdinApprovalProvider implements ApprovalProvider using stdin/stdout.
+// Submit+Wait happen atomically — Submit creates a ticket, Wait prompts and blocks.
+type stdinApprovalProvider struct {
+	stdin  io.Reader
+	stdout io.Writer
+}
+
+func (p *stdinApprovalProvider) Submit(ctx context.Context, req ApprovalRequest) (*ApprovalTicket, error) {
+	return &ApprovalTicket{
+		TicketID: fmt.Sprintf("stdin-%s-%s", req.RunID, req.StepID),
+		Status:   "pending",
+		Created:  time.Now(),
+	}, nil
+}
+
+func (p *stdinApprovalProvider) Wait(ctx context.Context, ticket *ApprovalTicket) (*ApprovalResponse, error) {
+	min := 1
+	fmt.Fprintf(p.stdout, "\n  ⚠ Approval required (ticket: %s)\n", ticket.TicketID)
+	fmt.Fprintf(p.stdout, "  Approve? [y/N]: ")
+	scanner := bufio.NewScanner(p.stdin)
+	approved := false
 	if scanner.Scan() {
 		answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
-		return answer == "y" || answer == "yes"
+		approved = answer == "y" || answer == "yes"
 	}
-	return false
+	_ = min
+	return &ApprovalResponse{
+		TicketID:   ticket.TicketID,
+		Approved:   approved,
+		ApproverID: "stdin-user",
+		Method:     "stdin",
+		Timestamp:  time.Now(),
+	}, nil
 }
 
 func (e *Engine) loadTools() {
@@ -1171,6 +1611,16 @@ func (e *Engine) Vars() map[string]any {
 // SetToolDef injects a tool definition directly (for testing/replay without disk loading).
 func (e *Engine) SetToolDef(name string, td *schema.ToolDefinition) {
 	e.tools[name] = td
+}
+
+// fileHash computes the SHA-256 hash of a file and returns the hex string.
+func fileHash(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:]), nil
 }
 
 func (e *Engine) emitStepError(stepID string, start time.Time, kind, msg string) {

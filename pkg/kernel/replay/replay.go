@@ -4,6 +4,7 @@
 package replay
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,7 +74,7 @@ func NewReplayExecutor(s *Scenario) *ReplayExecutor {
 
 // Execute returns the next canned response for the given tool and action.
 // Implements engine.ToolExecutor.
-func (r *ReplayExecutor) Execute(td *schema.ToolDefinition, actionName string, inputs map[string]any, vars map[string]any) (*executor.Result, error) {
+func (r *ReplayExecutor) Execute(ctx context.Context, td *schema.ToolDefinition, actionName string, inputs map[string]any, vars map[string]any) (*executor.Result, error) {
 	key := td.Meta.Name + ":" + actionName
 	responses, ok := r.scenario.ToolResponses[key]
 	if !ok {

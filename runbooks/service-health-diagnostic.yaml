@@ -1,0 +1,100 @@
+# Service Health Diagnostic — effects-based governance
+apiVersion: kernel/v0
+
+meta:
+  name: service-health-diagnostic
+  description: Diagnose service health with effects-based governance and branching
+
+  inputs:
+    hostname:
+      type: string
+      required: true
+      description: Target service hostname
+
+  constants:
+    health_path: "/"
+
+  governance:
+    rules:
+      - effects: [network]
+        action: allow
+      - risk: critical
+        action: require-approval
+      - default: allow
+
+  secrets:
+    - env: SERVICE_AUTH_TOKEN
+      description: Bearer token for authenticated health endpoint
+      required: false
+
+tools:
+  - curl
+  - ping
+
+steps:
+  # Step 1: Ping the host
+  - id: ping_host
+    type: tool
+    tool: ping
+    action: check
+    continue_on_fail: true
+    inputs:
+      host: "{{ .hostname }}"
+      count: "2"
+
+  # Step 2: HTTP health check
+  - id: http_check
+    type: tool
+    tool: curl
+    action: get
+    inputs:
+      url: "https://{{ .hostname }}{{ .health_path }}"
+
+  # Step 3: Evaluate status
+  - id: evaluate
+    type: assert
+    continue_on_fail: true
+    assert:
+      - type: equals
+        value: "{{ .status_code }}"
+        expected: "200"
+
+  # Step 4: Route based on result
+  - id: triage
+    type: branch
+    branches:
+      - condition: '{{ eq .status_code "200" }}'
+        label: healthy
+        steps:
+          - id: healthy_end
+            type: end
+            outcome:
+              category: no_action
+              code: service_healthy
+              meta:
+                hostname: "{{ .hostname }}"
+                status_code: "{{ .status_code }}"
+
+      - condition: '{{ eq .status_code "503" }}'
+        label: degraded
+        steps:
+          - id: degraded_end
+            type: end
+            outcome:
+              category: escalated
+              code: service_degraded
+              meta:
+                hostname: "{{ .hostname }}"
+                status_code: "{{ .status_code }}"
+
+      - condition: default
+        label: unknown
+        steps:
+          - id: unknown_end
+            type: end
+            outcome:
+              category: escalated
+              code: unknown_status
+              meta:
+                hostname: "{{ .hostname }}"
+                status_code: "{{ .status_code }}"

@@ -1,0 +1,46 @@
+apiVersion: tool/v0
+meta:
+  name: az
+  description: Azure CLI
+  transport: stdio
+  binary: az
+contract:
+  effects: [azure]
+  writes: []
+  idempotent: true
+  deterministic: false
+  inputs:
+    command:
+      type: string
+      required: true
+  outputs:
+    result:
+      type: string
+actions:
+  vm-list:
+    description: List VMs in a resource group
+    argv: ["az", "vm", "list", "--resource-group", "{{ .resource_group }}", "-o", "json"]
+    contract:
+      inputs:
+        resource_group:
+          type: string
+          required: true
+    extract:
+      result:
+        from: stdout
+  vm-restart:
+    description: Restart a VM
+    argv: ["az", "vm", "restart", "--name", "{{ .vm_name }}", "--resource-group", "{{ .resource_group }}"]
+    contract:
+      inputs:
+        vm_name:
+          type: string
+          required: true
+        resource_group:
+          type: string
+          required: true
+      writes: [vm]
+      idempotent: true
+    extract:
+      result:
+        from: stdout

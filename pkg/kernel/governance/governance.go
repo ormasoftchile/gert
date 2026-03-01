@@ -84,6 +84,24 @@ func ruleMatches(rule schema.GovernanceRule, c *contract.Contract, risk contract
 		return false
 	}
 
+	// Effects-based matching (new taxonomy)
+	if len(rule.Effects) > 0 {
+		if !hasAny(c.Effects, rule.Effects) {
+			return false
+		}
+		// If rule specifies writes (top-level or in contract), both must match
+		if len(rule.Writes) > 0 {
+			if !hasAny(c.Writes, rule.Writes) {
+				return false
+			}
+		} else if rule.Contract != nil && len(rule.Contract.Writes) > 0 {
+			if !hasAny(c.Writes, rule.Contract.Writes) {
+				return false
+			}
+		}
+		return true
+	}
+
 	// Contract-based matching (writes/reads)
 	if rule.Contract != nil {
 		return contractMatches(rule.Contract, c)
@@ -128,8 +146,24 @@ func describeRule(rule schema.GovernanceRule) string {
 	if rule.Risk != "" {
 		return "risk: " + rule.Risk
 	}
+	if len(rule.Effects) > 0 {
+		return "effects match"
+	}
 	if rule.Contract != nil {
 		return "contract match"
 	}
 	return "unknown"
+}
+
+// HasContractViolationsDeny checks if the policy includes a contract_violations: deny rule.
+func HasContractViolationsDeny(policy *schema.GovernancePolicy) bool {
+	if policy == nil {
+		return false
+	}
+	for _, rule := range policy.Rules {
+		if rule.ContractViolations == "deny" {
+			return true
+		}
+	}
+	return false
 }

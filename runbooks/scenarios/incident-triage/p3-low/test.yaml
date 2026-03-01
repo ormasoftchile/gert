@@ -1,0 +1,12 @@
+# Test: P3 low priority — no action
+description: P3 incident logged without action
+expected_status: completed
+expected_outcome: no_action
+expected_code: low_priority_logged
+must_reach:
+  - check_service
+  - low_end
+must_not_reach:
+  - p1_investigate
+  - p1_end
+  - p2_end

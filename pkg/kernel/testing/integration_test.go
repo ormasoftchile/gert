@@ -1,6 +1,7 @@
 package testing
 
 import (
+	"context"
 	"io"
 	"strings"
 	"testing"
@@ -16,7 +17,7 @@ type mockToolExec struct {
 	responses map[string]*executor.Result
 }
 
-func (m *mockToolExec) Execute(td *schema.ToolDefinition, action string, inputs map[string]any, vars map[string]any) (*executor.Result, error) {
+func (m *mockToolExec) Execute(ctx context.Context, td *schema.ToolDefinition, action string, inputs map[string]any, vars map[string]any) (*executor.Result, error) {
 	key := td.Meta.Name + ":" + action
 	if r, ok := m.responses[key]; ok {
 		return r, nil
@@ -46,8 +47,8 @@ func TestIntegration_ReplayAndAssert(t *testing.T) {
 				},
 			},
 			{
-				ID:   "evaluate",
-				Type: schema.StepAssert,
+				ID:             "evaluate",
+				Type:           schema.StepAssert,
 				ContinueOnFail: true,
 				Assert: []schema.Assertion{
 					{Type: "equals", Value: "{{ .status_code }}", Expected: "200"},
@@ -61,7 +62,7 @@ func TestIntegration_ReplayAndAssert(t *testing.T) {
 						Label:     "healthy",
 						Steps: []schema.Step{
 							{
-								ID: "healthy_end",
+								ID:   "healthy_end",
 								Type: schema.StepEnd,
 								Outcome: &schema.Outcome{
 									Category: schema.OutcomeNoAction,
@@ -75,7 +76,7 @@ func TestIntegration_ReplayAndAssert(t *testing.T) {
 						Label:     "unhealthy",
 						Steps: []schema.Step{
 							{
-								ID: "unhealthy_end",
+								ID:   "unhealthy_end",
 								Type: schema.StepEnd,
 								Outcome: &schema.Outcome{
 									Category: schema.OutcomeEscalated,
@@ -122,7 +123,7 @@ func TestIntegration_ReplayAndAssert(t *testing.T) {
 	// Manually inject tool definition since we're not loading from disk
 	eng.SetToolDef("health-check", toolDef)
 
-	engineResult := eng.Run()
+	engineResult := eng.Run(context.Background())
 
 	// Build test run result
 	runResult := &RunResult{
@@ -216,7 +217,7 @@ func TestIntegration_FailedScenario(t *testing.T) {
 	})
 	eng.SetToolDef("health-check", toolDef)
 
-	engineResult := eng.Run()
+	engineResult := eng.Run(context.Background())
 
 	runResult := &RunResult{
 		Status:       engineResult.Status,

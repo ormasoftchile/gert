@@ -2,10 +2,14 @@
 package trace
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -14,20 +18,28 @@ import (
 type EventType string
 
 const (
-	EventRunStart          EventType = "run_start"
-	EventRunComplete       EventType = "run_complete"
-	EventStepStart         EventType = "step_start"
-	EventStepComplete      EventType = "step_complete"
-	EventBranchEnter       EventType = "branch_enter"
-	EventBranchExit        EventType = "branch_exit"
-	EventParallelFork      EventType = "parallel_fork"
-	EventParallelMerge     EventType = "parallel_merge"
-	EventOutcomeResolved   EventType = "outcome_resolved"
-	EventContractEvaluated EventType = "contract_evaluated"
+	EventRunStart           EventType = "run_start"
+	EventRunComplete        EventType = "run_complete"
+	EventStepStart          EventType = "step_start"
+	EventStepComplete       EventType = "step_complete"
+	EventBranchEnter        EventType = "branch_enter"
+	EventBranchExit         EventType = "branch_exit"
+	EventParallelFork       EventType = "parallel_fork"
+	EventParallelMerge      EventType = "parallel_merge"
+	EventOutcomeResolved    EventType = "outcome_resolved"
+	EventContractEvaluated  EventType = "contract_evaluated"
 	EventGovernanceDecision EventType = "governance_decision"
-	EventRedactionApplied  EventType = "redaction_applied"
-	EventForEachStart      EventType = "for_each_start"
-	EventForEachItem       EventType = "for_each_item"
+	EventRedactionApplied   EventType = "redaction_applied"
+	EventForEachStart       EventType = "for_each_start"
+	EventForEachItem        EventType = "for_each_item"
+	EventApprovalSubmitted  EventType = "approval_submitted"
+	EventApprovalResolved   EventType = "approval_resolved"
+	EventScopeExport        EventType = "scope_export"
+	EventVisibilityApplied  EventType = "visibility_applied"
+	EventRepeatStart        EventType = "repeat_start"
+	EventRepeatIteration    EventType = "repeat_iteration"
+	EventContractViolation  EventType = "contract_violation"
+	EventInputResolved      EventType = "input_resolved"
 )
 
 // StepStatus is the execution status of a step.
@@ -45,21 +57,25 @@ type Event struct {
 	Type      EventType      `json:"type"`
 	Timestamp time.Time      `json:"timestamp"`
 	RunID     string         `json:"run_id"`
+	PrevHash  string         `json:"prev_hash"`
 	Data      map[string]any `json:"data,omitempty"`
 }
 
 // Failure describes why a step failed or errored.
 type Failure struct {
-	Kind    string `json:"kind"`    // exit_code, assertion, denied, contract_violation, timeout, ...
+	Kind    string `json:"kind"` // exit_code, assertion, denied, contract_violation, timeout, ...
 	Message string `json:"message"`
 }
 
 // Writer writes trace events to an append-only JSONL stream.
 type Writer struct {
-	mu     sync.Mutex
-	w      io.Writer
-	runID  string
-	enc    *json.Encoder
+	mu         sync.Mutex
+	w          io.Writer
+	runID      string
+	enc        *json.Encoder
+	secretVars []string
+	prevHash   string // SHA-256 of previous event JSON
+	chainHash  string // running chain hash
 }
 
 // NewWriter creates a trace writer that writes to the given io.Writer.
@@ -69,6 +85,24 @@ func NewWriter(w io.Writer, runID string) *Writer {
 		runID: runID,
 		enc:   json.NewEncoder(w),
 	}
+}
+
+// SetSecrets configures the writer to redact values of the given env vars from trace output.
+func (tw *Writer) SetSecrets(envVars []string) {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	tw.secretVars = envVars
+}
+
+// RedactSecrets replaces secret values in a string with "<REDACTED>".
+func (tw *Writer) RedactSecrets(s string) string {
+	for _, envVar := range tw.secretVars {
+		val := os.Getenv(envVar)
+		if val != "" && len(val) > 0 {
+			s = strings.ReplaceAll(s, val, "<REDACTED>")
+		}
+	}
+	return s
 }
 
 // NewFileWriter creates a trace writer that appends to a JSONL file.
@@ -85,13 +119,35 @@ func (tw *Writer) Emit(eventType EventType, data map[string]any) error {
 	tw.mu.Lock()
 	defer tw.mu.Unlock()
 
+	// Hash chain: prev_hash is SHA-256 of previous event's JSON
+	prevHash := tw.prevHash
+	if prevHash == "" {
+		prevHash = strings.Repeat("0", 64) // genesis
+	}
+
 	evt := Event{
 		Type:      eventType,
 		Timestamp: time.Now().UTC(),
 		RunID:     tw.runID,
+		PrevHash:  prevHash,
 		Data:      data,
 	}
-	return tw.enc.Encode(evt)
+
+	// Serialize to JSON
+	jsonBytes, err := json.Marshal(evt)
+	if err != nil {
+		return err
+	}
+
+	// Compute hash of this event for the next event's prev_hash
+	h := sha256.Sum256(jsonBytes)
+	tw.prevHash = hex.EncodeToString(h[:])
+	tw.chainHash = tw.prevHash
+
+	// Write the JSON line
+	jsonBytes = append(jsonBytes, '\n')
+	_, err = tw.w.Write(jsonBytes)
+	return err
 }
 
 // EmitStepStart emits a step_start event.
@@ -192,11 +248,32 @@ func (tw *Writer) EmitRunStart(runbook string, inputs, constants map[string]any)
 // EmitRunComplete emits a run_complete event.
 func (tw *Writer) EmitRunComplete(outcome map[string]any, status string, duration time.Duration) error {
 	data := map[string]any{
-		"status":   status,
-		"duration": duration.String(),
+		"status":     status,
+		"duration":   duration.String(),
+		"chain_hash": tw.chainHash,
 	}
 	if outcome != nil {
 		data["outcome"] = outcome
 	}
+
+	// Sign the chain if signing key is available
+	sigKey := os.Getenv("GERT_TRACE_SIGNING_KEY")
+	if sigKey != "" {
+		mac := hmac.New(sha256.New, []byte(sigKey))
+		mac.Write([]byte(tw.chainHash))
+		data["signature"] = hex.EncodeToString(mac.Sum(nil))
+		keyID := os.Getenv("GERT_TRACE_SIGNING_KEY_ID")
+		if keyID != "" {
+			data["signing_key_id"] = keyID
+		}
+	}
+
 	return tw.Emit(EventRunComplete, data)
+}
+
+// ChainHash returns the current chain hash (SHA-256 of the last emitted event).
+func (tw *Writer) ChainHash() string {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	return tw.chainHash
 }

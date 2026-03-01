@@ -1,0 +1,93 @@
+# Incident Triage — multi-branch with manual investigation
+apiVersion: kernel/v0
+
+meta:
+  name: incident-triage
+  description: Multi-branch incident triage with manual investigation step
+
+  inputs:
+    incident_id:
+      type: string
+      required: true
+      description: Incident tracking ID
+    severity:
+      type: string
+      required: true
+      description: Incident severity (p1, p2, p3)
+
+  constants:
+    escalation_channel: "#incidents"
+
+  governance:
+    rules:
+      - effects: [network]
+        action: allow
+      - risk: critical
+        action: require-approval
+      - default: allow
+
+  extensions:
+    x-team: sre
+    x-runbook-type: triage
+
+tools:
+  - curl
+
+steps:
+  # Step 1: Check affected service
+  - id: check_service
+    type: tool
+    tool: curl
+    action: get
+    inputs:
+      url: "https://status.internal/incidents/{{ .incident_id }}"
+
+  # Step 2: Route by severity
+  - id: severity_route
+    type: branch
+    branches:
+      - condition: '{{ eq .severity "p1" }}'
+        label: critical
+        steps:
+          - id: p1_investigate
+            type: manual
+            instructions: "P1 incident {{ .incident_id }}: Investigate immediately. Check service logs and metrics."
+            contract:
+              effects: []
+              writes: []
+            required_evidence:
+              - kind: text
+                name: investigation_notes
+
+          - id: p1_end
+            type: end
+            outcome:
+              category: escalated
+              code: p1_triaged
+              meta:
+                incident_id: "{{ .incident_id }}"
+                severity: "{{ .severity }}"
+
+      - condition: '{{ eq .severity "p2" }}'
+        label: high
+        steps:
+          - id: p2_end
+            type: end
+            outcome:
+              category: resolved
+              code: p2_acknowledged
+              meta:
+                incident_id: "{{ .incident_id }}"
+                severity: "{{ .severity }}"
+
+      - condition: default
+        label: low
+        steps:
+          - id: low_end
+            type: end
+            outcome:
+              category: no_action
+              code: low_priority_logged
+              meta:
+                incident_id: "{{ .incident_id }}"
+                severity: "{{ .severity }}"

@@ -1,0 +1,15 @@
+# Scenario: P1 incident — critical triage
+inputs:
+  incident_id: INC-001
+  severity: p1
+
+tool_responses:
+  "curl:get":
+    - exit_code: 0
+      stdout: '{"id":"INC-001","status":"open","severity":"p1"}'
+      outputs:
+        status: "open"
+
+evidence:
+  p1_investigate:
+    investigation_notes: "Checked logs — database connection pool exhausted"

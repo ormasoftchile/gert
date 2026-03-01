@@ -34,6 +34,7 @@ type Meta struct {
 	Inputs      map[string]contract.ParamDef `yaml:"inputs,omitempty"    json:"inputs,omitempty"`
 	Constants   map[string]any               `yaml:"constants,omitempty" json:"constants,omitempty"`
 	Governance  *GovernancePolicy            `yaml:"governance,omitempty" json:"governance,omitempty"`
+	Secrets     []SecretRef                  `yaml:"secrets,omitempty"   json:"secrets,omitempty"`
 	Extensions  map[string]any               `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 }
 
@@ -43,16 +44,20 @@ type Meta struct {
 
 // GovernancePolicy defines risk-based and contract-based governance rules.
 type GovernancePolicy struct {
-	Rules []GovernanceRule `yaml:"rules" json:"rules"`
+	Rules           []GovernanceRule `yaml:"rules" json:"rules"`
+	ApprovalTimeout string           `yaml:"approval_timeout,omitempty" json:"approval_timeout,omitempty"` // e.g. "30m", parsed as time.Duration
 }
 
 // GovernanceRule is a single governance policy rule.
 type GovernanceRule struct {
-	Risk         string              `yaml:"risk,omitempty"     json:"risk,omitempty"`
-	Contract     *GovernanceContract `yaml:"contract,omitempty" json:"contract,omitempty"`
-	Default      string              `yaml:"default,omitempty"  json:"default,omitempty"`
-	Action       string              `yaml:"action,omitempty"   json:"action,omitempty"`
-	MinApprovers int                 `yaml:"min_approvers,omitempty" json:"min_approvers,omitempty"`
+	Risk               string              `yaml:"risk,omitempty"     json:"risk,omitempty"`
+	Effects            []string            `yaml:"effects,omitempty"  json:"effects,omitempty"`
+	Writes             []string            `yaml:"writes,omitempty"   json:"writes,omitempty"`
+	Contract           *GovernanceContract `yaml:"contract,omitempty" json:"contract,omitempty"`
+	Default            string              `yaml:"default,omitempty"  json:"default,omitempty"`
+	Action             string              `yaml:"action,omitempty"   json:"action,omitempty"`
+	MinApprovers       int                 `yaml:"min_approvers,omitempty" json:"min_approvers,omitempty"`
+	ContractViolations string              `yaml:"contract_violations,omitempty" json:"contract_violations,omitempty"` // "deny" to promote violations to errors
 }
 
 // GovernanceContract matches steps by contract properties.
@@ -93,12 +98,20 @@ type Step struct {
 	ID             string         `yaml:"id,omitempty"   json:"id,omitempty"`
 	Type           StepType       `yaml:"type"           json:"type"`
 	When           string         `yaml:"when,omitempty" json:"when,omitempty"`
-	Next           any            `yaml:"next,omitempty" json:"next,omitempty"` // string or NextBounded
+	Next           any            `yaml:"next,omitempty" json:"next,omitempty"`
 	ContinueOnFail bool           `yaml:"continue_on_fail,omitempty" json:"continue_on_fail,omitempty"`
 	Extensions     map[string]any `yaml:"extensions,omitempty" json:"extensions,omitempty"`
 
-	// ForEach modifier (any step type)
+	// Scoped state (Track 1i)
+	Scope      string      `yaml:"scope,omitempty"      json:"scope,omitempty"`      // variable namespace
+	Export     []string    `yaml:"export,omitempty"     json:"export,omitempty"`     // promote outputs to global
+	Visibility *Visibility `yaml:"visibility,omitempty" json:"visibility,omitempty"` // allow/deny globs
+
+	// ForEach modifier
 	ForEach *ForEach `yaml:"for_each,omitempty" json:"for_each,omitempty"`
+
+	// Repeat block — bounded multi-step iteration
+	Repeat *RepeatBlock `yaml:"repeat,omitempty" json:"repeat,omitempty"`
 
 	// Tool step
 	Tool       string         `yaml:"tool,omitempty"   json:"tool,omitempty"`
@@ -163,7 +176,21 @@ func ParseNext(raw any) (target string, max int, bounded bool, err error) {
 type ForEach struct {
 	As       string `yaml:"as"       json:"as"`
 	Over     string `yaml:"over"     json:"over"`
+	Key      string `yaml:"key,omitempty" json:"key,omitempty"` // produces map-structured outputs
 	Parallel bool   `yaml:"parallel,omitempty" json:"parallel,omitempty"`
+}
+
+// Visibility declares which variable paths a step can access.
+type Visibility struct {
+	Allow []string `yaml:"allow,omitempty" json:"allow,omitempty"` // glob patterns
+	Deny  []string `yaml:"deny,omitempty"  json:"deny,omitempty"`  // glob patterns (deny overrides allow)
+}
+
+// RepeatBlock defines bounded multi-step iteration.
+type RepeatBlock struct {
+	Max   int    `yaml:"max"             json:"max"`             // maximum iterations (required, guarantees termination)
+	Until string `yaml:"until,omitempty" json:"until,omitempty"` // expression; true = stop early
+	Steps []Step `yaml:"steps"           json:"steps"`           // steps to execute per iteration
 }
 
 // ---------------------------------------------------------------------------
@@ -219,4 +246,15 @@ type EvidenceRequirement struct {
 	Kind  string   `yaml:"kind"             json:"kind"` // text, checklist, attachment
 	Name  string   `yaml:"name"             json:"name"`
 	Items []string `yaml:"items,omitempty"  json:"items,omitempty"`
+}
+
+// ---------------------------------------------------------------------------
+// Secrets
+// ---------------------------------------------------------------------------
+
+// SecretRef declares a required environment variable for a tool or runbook.
+type SecretRef struct {
+	Env         string `yaml:\"env\"              json:\"env\"`
+	Description string `yaml:\"description,omitempty\" json:\"description,omitempty\"`
+	Required    bool   `yaml:\"required,omitempty\"    json:\"required,omitempty\"`
 }

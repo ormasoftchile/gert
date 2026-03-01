@@ -1,0 +1,15 @@
+# Test: unknown scenario — unexpected status code
+description: Service responds with unexpected status — should escalate as unknown
+expected_status: completed
+expected_outcome: escalated
+expected_code: unknown_status
+must_reach:
+  - ping_host
+  - http_check
+  - evaluate
+  - unknown_end
+must_not_reach:
+  - healthy_end
+  - degraded_end
+expected_outputs:
+  status_code: "502"

@@ -1,0 +1,12 @@
+# Test: P1 critical triage
+description: P1 incident requires manual investigation and escalation
+expected_status: completed
+expected_outcome: escalated
+expected_code: p1_triaged
+must_reach:
+  - check_service
+  - p1_investigate
+  - p1_end
+must_not_reach:
+  - p2_end
+  - low_end

@@ -2,6 +2,7 @@ package testing
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -18,12 +19,12 @@ import (
 
 // TestResult is the result of running one scenario.
 type TestResult struct {
-	RunbookName  string           `json:"runbook_name"`
-	ScenarioName string           `json:"scenario_name"`
-	Status       string           `json:"status"` // passed, failed, skipped, error
-	DurationMs   int64            `json:"duration_ms"`
+	RunbookName  string            `json:"runbook_name"`
+	ScenarioName string            `json:"scenario_name"`
+	Status       string            `json:"status"` // passed, failed, skipped, error
+	DurationMs   int64             `json:"duration_ms"`
 	Assertions   []AssertionResult `json:"assertions,omitempty"`
-	Error        string           `json:"error,omitempty"`
+	Error        string            `json:"error,omitempty"`
 }
 
 // TestSummary aggregates counts across scenarios.
@@ -144,6 +145,7 @@ func (r *Runner) RunScenario(runbookPath, scenarioName string) (*TestResult, err
 
 // runScenario executes a single scenario and evaluates its test spec.
 func (r *Runner) runScenario(rb *kschema.Runbook, runbookPath string, si ScenarioInfo) TestResult {
+	ctx := context.Background()
 	start := time.Now()
 
 	// Load scenario
@@ -215,7 +217,7 @@ func (r *Runner) runScenario(rb *kschema.Runbook, runbookPath string, si Scenari
 	if r.Timeout > 0 {
 		done := make(chan struct{})
 		go func() {
-			engineResult = eng.Run()
+			engineResult = eng.Run(ctx)
 			close(done)
 		}()
 		select {
@@ -230,7 +232,7 @@ func (r *Runner) runScenario(rb *kschema.Runbook, runbookPath string, si Scenari
 			}
 		}
 	} else {
-		engineResult = eng.Run()
+		engineResult = eng.Run(ctx)
 	}
 
 	// Build RunResult for assertion evaluation

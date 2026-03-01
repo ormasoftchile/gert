@@ -2,66 +2,54 @@ apiVersion: tool/v0
 
 meta:
   name: nslookup
-  version: "1.0"
   description: Query DNS to obtain domain name or IP address mappings
   binary: nslookup
+  transport: stdio
 
-transport:
-  mode: stdio
+contract:
+  effects: [network]
+  writes: []
+  idempotent: true
+  deterministic: false
+  inputs:
+    host:
+      type: string
+      required: true
+  outputs:
+    resolved_ip:
+      type: string
+    result:
+      type: string
 
 actions:
   lookup:
     description: Resolve a hostname to its IP address(es)
     argv: ["{{ .host }}"]
-    args:
-      host:
-        type: string
-        required: true
-        description: Hostname or IP address to resolve
-    capture:
-      stdout:
-        format: text
+    extract:
+      resolved_ip:
+        from: stdout
+      result:
+        from: stdout
 
   lookup-server:
     description: Resolve a hostname using a specific DNS server
     argv: ["{{ .host }}", "{{ .server }}"]
-    args:
-      host:
-        type: string
-        required: true
-        description: Hostname or IP address to resolve
-      server:
-        type: string
-        required: true
-        description: DNS server to query (hostname or IP)
-    capture:
-      stdout:
-        format: text
+    extract:
+      resolved_ip:
+        from: stdout
+      result:
+        from: stdout
 
   reverse:
     description: Perform a reverse DNS lookup for an IP address
     argv: ["-type=PTR", "{{ .ip }}"]
-    args:
-      ip:
-        type: string
-        required: true
-        description: IP address to reverse-resolve
-    capture:
-      stdout:
-        format: text
+    extract:
+      result:
+        from: stdout
 
   query-type:
-    description: Query a specific DNS record type (A, AAAA, MX, TXT, CNAME, NS, etc.)
+    description: Query a specific DNS record type
     argv: ["-type={{ .record_type }}", "{{ .host }}"]
-    args:
-      host:
-        type: string
-        required: true
-        description: Hostname to query
-      record_type:
-        type: string
-        required: true
-        description: DNS record type (A, AAAA, MX, TXT, CNAME, NS, SOA, etc.)
-    capture:
-      stdout:
-        format: text
+    extract:
+      result:
+        from: stdout
