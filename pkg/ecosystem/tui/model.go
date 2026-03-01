@@ -42,7 +42,7 @@ type Model struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	eventCh     chan tea.Msg // channel for streaming events from engine goroutine
-	runCfg      *RunConfig  // set before Run() to auto-start engine
+	runCfg      *RunConfig   // set before Run() to auto-start engine
 }
 
 // NewModel creates a TUI model from a runbook.
@@ -271,7 +271,7 @@ type RunConfig struct {
 	Mode        string
 	Vars        map[string]string
 	RunbookPath string
-	Scenario    string            // for replay mode
+	Scenario    string              // for replay mode
 	ToolExec    engine.ToolExecutor // optional (replay executor)
 }
 

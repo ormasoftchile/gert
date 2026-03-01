@@ -14,14 +14,14 @@ import (
 
 // VerifyResult is the outcome of verifying a trace file.
 type VerifyResult struct {
-	EventCount    int
-	Valid         bool
-	BrokenAt      int    // -1 if no break
-	SignatureOK   bool
-	SignatureNoKey bool   // signature present but no key to verify
-	SigningKeyID  string
-	ChainHash     string
-	Error         string
+	EventCount     int
+	Valid          bool
+	BrokenAt       int // -1 if no break
+	SignatureOK    bool
+	SignatureNoKey bool // signature present but no key to verify
+	SigningKeyID   string
+	ChainHash      string
+	Error          string
 }
 
 // VerifyFile verifies the hash chain and optional signature of a trace file.

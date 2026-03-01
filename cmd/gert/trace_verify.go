@@ -38,12 +38,14 @@ func runTraceVerify(cmd *cobra.Command, args []string) error {
 			if keyLabel == "" {
 				keyLabel = "(default)"
 			}
-			fmt.Printf("✓ Signature valid: signed by key %q\n", keyLabel)		} else if result.SignatureNoKey {
+			fmt.Printf("✓ Signature valid: signed by key %q\n", keyLabel)
+		} else if result.SignatureNoKey {
 			keyLabel := result.SigningKeyID
 			if keyLabel == "" {
 				keyLabel = "unknown"
 			}
-			fmt.Printf("\u26a0 Signature present (key %q) but no GERT_TRACE_SIGNING_KEY set to verify\n", keyLabel)		} else if result.SigningKeyID != "" {
+			fmt.Printf("\u26a0 Signature present (key %q) but no GERT_TRACE_SIGNING_KEY set to verify\n", keyLabel)
+		} else if result.SigningKeyID != "" {
 			fmt.Printf("✗ Signature invalid\n")
 			return fmt.Errorf("signature verification failed")
 		}

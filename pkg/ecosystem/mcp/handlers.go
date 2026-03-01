@@ -166,7 +166,7 @@ func HandleTest(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResu
 		output = &ktesting.TestOutput{
 			Runbook:   filepath.Base(path),
 			Scenarios: []ktesting.TestResult{*result},
-			Summary: ktesting.TestSummary{Total: 1},
+			Summary:   ktesting.TestSummary{Total: 1},
 		}
 		switch result.Status {
 		case "passed":
