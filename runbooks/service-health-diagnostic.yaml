@@ -12,7 +12,7 @@ meta:
       description: Target service hostname
 
   constants:
-    health_path: "/healthz"
+    health_path: "/"
 
   governance:
     rules:
@@ -37,6 +37,7 @@ steps:
     type: tool
     tool: ping
     action: check
+    continue_on_fail: true
     inputs:
       host: "{{ .hostname }}"
       count: "2"

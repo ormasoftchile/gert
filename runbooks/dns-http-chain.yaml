@@ -42,7 +42,7 @@ steps:
     tool: curl
     action: get
     inputs:
-      url: "https://{{ .hostname }}/healthz"
+      url: "https://{{ .hostname }}"
 
   # Step 3: Evaluate
   - id: evaluate

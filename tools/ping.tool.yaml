@@ -22,14 +22,14 @@ contract:
 actions:
   check:
     description: Ping a host a fixed number of times and report results
-    argv: ["-c", "{{ .count }}", "{{ .host }}"]
+    argv: ["-n", "{{ .count }}", "{{ .host }}"]
     extract:
       result:
         from: stdout
 
   check-timeout:
     description: Ping a host with a deadline (seconds) and report results
-    argv: ["-c", "{{ .count }}", "-W", "{{ .timeout }}", "{{ .host }}"]
+    argv: ["-n", "{{ .count }}", "-w", "{{ .timeout }}", "{{ .host }}"]
     extract:
       result:
         from: stdout
